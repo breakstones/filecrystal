@@ -1,0 +1,7 @@
+# npm publish whitelist is driven by package.json "files"; this file acts as a safety net.
+*
+!dist/**
+!README.md
+!CHANGELOG.md
+!LICENSE
+!package.json

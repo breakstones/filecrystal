@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+tests/reports/
+tests/snapshots/
+pnpm-lock.yaml
+CHANGELOG.md
