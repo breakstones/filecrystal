@@ -17,6 +17,8 @@ api-key
 .env
 .env.local
 .env.*.local
+# npm auth tokens — project-level .npmrc must never be committed
+.npmrc
 
 # Editor / OS
 .DS_Store
