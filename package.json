@@ -1,6 +1,6 @@
 {
   "name": "filecrystal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Universal file parser for PDFs, images, xlsx/xls, docx — outputs Markdown and prompt-defined JSON via any OpenAI-compatible API.",
   "keywords": [
     "file-parser",
