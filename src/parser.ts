@@ -1,7 +1,6 @@
 import { basename } from 'node:path';
 import { stat } from 'node:fs/promises';
 import type {
-  ExtractedField,
   FileParser,
   FileParserConfig,
   ParseOptions,
@@ -26,11 +25,11 @@ import type { OcrBackend } from './ocr/backend.js';
 import { createOpenAICompatLlmBackend } from './llm/openai-compat.js';
 import { createOpenAICompatOcrBackend } from './ocr/openai-compat.js';
 import { parsePromptFile, buildUserPrompt } from './llm/prompt.js';
-import { resolveLocator } from './llm/resolve-locator.js';
 import { createFileCacheStore, type CacheStore } from './cache/store.js';
 import { buildCacheKey, fingerprintConfig } from './cache/key.js';
 import { FileParserError, ErrorCode } from './utils/errors.js';
 import { sha256String } from './extractors/utils/file-hash.js';
+import { createLimiter, type Limiter } from './utils/concurrency.js';
 
 class FileParserImpl implements FileParser {
   private readonly cfg: ResolvedConfig;
@@ -39,6 +38,7 @@ class FileParserImpl implements FileParser {
   private readonly llm: LlmBackend;
   private readonly cache: CacheStore;
   private readonly configFingerprint: string;
+  private readonly ocrLimiter: Limiter;
 
   constructor(cfg: ResolvedConfig) {
     this.cfg = cfg;
@@ -47,12 +47,15 @@ class FileParserImpl implements FileParser {
       this.visionOcr = createMockOcrBackend();
       this.llm = createMockLlmBackend();
     } else {
+      const visionExtraBody = cfg.ocr.enableThinking ? { enable_thinking: true } : undefined;
+      const textExtraBody = cfg.extraction.enableThinking ? { enable_thinking: true } : undefined;
       this.ocr = createOpenAICompatOcrBackend({
         baseUrl: cfg.openai.baseUrl,
         apiKey: cfg.openai.apiKey,
         model: cfg.openai.models.ocr,
         timeoutMs: cfg.ocr.timeoutMs,
         retries: cfg.ocr.retries,
+        ...(visionExtraBody ? { extraBody: visionExtraBody } : {}),
       });
       this.visionOcr = createOpenAICompatOcrBackend({
         baseUrl: cfg.openai.baseUrl,
@@ -60,15 +63,22 @@ class FileParserImpl implements FileParser {
         model: cfg.openai.models.vision,
         timeoutMs: cfg.ocr.timeoutMs,
         retries: cfg.ocr.retries,
+        ...(visionExtraBody ? { extraBody: visionExtraBody } : {}),
       });
       this.llm = createOpenAICompatLlmBackend({
         baseUrl: cfg.openai.baseUrl,
         apiKey: cfg.openai.apiKey,
         model: cfg.openai.models.text,
         timeoutMs: cfg.extraction.timeoutMs,
+        ...(textExtraBody ? { extraBody: textExtraBody } : {}),
       });
     }
     this.cache = createFileCacheStore(cfg.cacheDir);
+    // Process-scoped OCR/vision limiter shared across every extractor call
+    // that flows through this parser instance — pages from different files
+    // all compete for the same pool, so a 1-page file can't leave slots idle
+    // while a 10-page file waits.
+    this.ocrLimiter = createLimiter(cfg.ocr.maxConcurrency);
     this.configFingerprint = fingerprintConfig({
       mode: cfg.mode,
       parserVersion: cfg.parserVersion,
@@ -87,14 +97,15 @@ class FileParserImpl implements FileParser {
 
     const format = detectFormat(filePath);
     let stats;
+    let fileHash: string;
     try {
-      stats = await stat(filePath);
+      // stat + content hash are independent; run concurrently.
+      [stats, fileHash] = await Promise.all([stat(filePath), sha256File(filePath)]);
     } catch (err) {
       throw new FileParserError(ErrorCode.FILE_NOT_FOUND, `Cannot stat file: ${filePath}`, {
         cause: String(err),
       });
     }
-    const fileHash = await sha256File(filePath);
 
     const promptHash = options.prompt ? sha256String(options.prompt).slice(0, 12) : undefined;
     const cacheKey = buildCacheKey(fileHash, this.configFingerprint, promptHash);
@@ -123,6 +134,7 @@ class FileParserImpl implements FileParser {
       visionOcr: this.visionOcr,
       truncation: this.cfg.truncation,
       ocrConfig: this.cfg.ocr,
+      ocrLimiter: this.ocrLimiter,
       detectSeals,
       fullPages: options.fullPages === true,
       metrics,
@@ -164,10 +176,7 @@ class FileParserImpl implements FileParser {
       }
     }
 
-    let extracted: Record<string, ExtractedField> | undefined;
-    let locatorResolveCount = 0;
-    let confidenceSum = 0;
-    let fieldsAboveConfidence = 0;
+    let extracted: Record<string, unknown> | undefined;
 
     if (options.prompt) {
       const llmStart = Date.now();
@@ -179,22 +188,9 @@ class FileParserImpl implements FileParser {
         ...(parsed.frontmatter.model ? { model: parsed.frontmatter.model } : {}),
         temperature: parsed.frontmatter.temperature ?? this.cfg.extraction.defaultTemperature,
       });
-      extracted = {};
-      for (const [key, field] of Object.entries(llmResult.fields)) {
-        const resolved = resolveLocator(field.rawHint, raw);
-        const conf = (field.confidence ?? 0.5) * resolved.confidencePenalty;
-        const enriched: ExtractedField = {
-          value: field.value,
-          confidence: conf,
-        };
-        if (resolved.locator) enriched.locator = resolved.locator;
-        if (field.rawHint) enriched.rawHint = field.rawHint;
-        if (field.snippet) enriched.snippet = field.snippet;
-        extracted[key] = enriched;
-        confidenceSum += conf;
-        if (resolved.locator) locatorResolveCount++;
-        if (conf >= 0.7) fieldsAboveConfidence++;
-      }
+      // Pass the prompt's JSON shape through verbatim; the caller owns the schema.
+      extracted = llmResult.fields;
+      if (llmResult.parseFailed) warnings.push('llm-json-parse-failed-fallback-to-text');
       metrics.addLlmMs(Date.now() - llmStart);
       metrics.recordCall({
         model: llmResult.model,
@@ -219,9 +215,9 @@ class FileParserImpl implements FileParser {
       raw,
       metrics: metrics.build({
         fieldCount,
-        fieldsAboveConfidence,
-        avgConfidence: fieldCount > 0 ? confidenceSum / fieldCount : 0,
-        locatorResolveRate: fieldCount > 0 ? locatorResolveCount / fieldCount : 0,
+        fieldsAboveConfidence: 0,
+        avgConfidence: 0,
+        locatorResolveRate: 0,
         ocrCharsRecognized: raw.fullText?.length ?? 0,
         sealsDetected: raw.seals?.length ?? 0,
         signaturesDetected: raw.signatures?.length ?? 0,

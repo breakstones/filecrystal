@@ -114,6 +114,7 @@ export interface ParsePerformanceMetrics {
   cacheHit: boolean;
   ocrConcurrencyPeak: number;
   retries: number;
+  imagesProcessed: number;
 }
 
 export interface ParseCostMetrics {
@@ -142,7 +143,13 @@ export interface ParseResult {
   parserVersion: string;
   source: ParsedSource;
   raw: ParsedRaw;
-  extracted?: Record<string, ExtractedField>;
+  /**
+   * Raw LLM output when a prompt was supplied. The prompt's JSON shape is
+   * passed through verbatim — the caller's prompt owns the schema. When the
+   * model's response cannot be parsed as JSON even after best-effort repair,
+   * this is `{ text: "<raw model output>" }`.
+   */
+  extracted?: Record<string, unknown>;
   metrics: ParseMetrics;
   warnings?: string[];
 }

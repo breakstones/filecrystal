@@ -2,9 +2,13 @@
 
 ## Project
 
-TypeScript universal file parser published to npm. Main consumer is the
-**OpenClaw** ecosystem, which imports it inside the `before_prompt_build`
-hook. Secondary usage is a standalone CLI (`filecrystal parse <path>`).
+TypeScript universal file parser published to npm. Exposes two integration
+surfaces that produce the same output shape:
+
+- **CLI** (`filecrystal extract` / `filecrystal structure`) — for shell
+  scripts, CI pipelines and language-agnostic integrations.
+- **SDK** (`createFileParser` / `createStructuredExtractor` / `parseMany` /
+  `toMarkdown`) — for Node.js applications.
 
 ## Stack
 
@@ -13,29 +17,47 @@ tests · `changesets` versioning.
 
 Runtime libs: `xlsx` (SheetJS) · `pdfjs-dist` · `@napi-rs/canvas` ·
 `mammoth` + `word-extractor` · `sharp` · `openai` SDK · `zod` · `p-limit` ·
-`proper-lockfile` · `gray-matter` · `commander` · `mime-types`.
+`gray-matter` · `commander` · `mime-types`.
 
 ## Commands
 
 - `pnpm dev` — watch-mode build.
-- `pnpm build` — emit `dist/index.{mjs,cjs,d.ts}`, `dist/schema.*` and `dist/cli.js`.
+- `pnpm build` — emit `dist/index.{js,cjs,d.ts}`, `dist/schema.*` and
+  `dist/cli.js`.
 - `pnpm typecheck` / `pnpm lint` / `pnpm format`.
 - `pnpm test` — unit tests (mock LLM/OCR) with coverage.
-- `pnpm test:e2e` — real-file tests (requires `FILECRYSTAL_BASE_URL` +
-  `FILECRYSTAL_API_KEY`; defaults validate against 百炼).
-- `pnpm cli -- parse <path> [--prompt p.md] [--mode mock|api] [--pretty]`.
+- `pnpm test:e2e` — real-file tests (requires `FILECRYSTAL_MODEL_BASE_URL` +
+  `FILECRYSTAL_MODEL_API_KEY`; defaults validate against 百炼).
+- CLI subcommands (api-only — CLI has no mock mode):
+  - `filecrystal extract <paths...> [--out dir] [--concurrency N]` — parses
+    files to Markdown; each input produces `<name>.md`.
+  - `filecrystal structure <inputs...> [--prompt file | --prompt-text str]` —
+    LLM-driven field extraction; inputs may be `.md` / `.parsed.json` /
+    raw files (auto-parsed first). Auto-batches when combined input exceeds
+    `--max-input-chars` (default 80 000).
 
 ## Architecture
 
-Layer 1 `FormatExtractor` (xlsx / pdf / docx / image) → Layer 2
-`PromptExtractor` (LLM + `resolveLocator`). OCR and LLM backends are unified
-behind the **OpenAI-compatible** interface (`baseUrl` + `apiKey` + `model`);
-百炼 is the default preset. See `specs/001-file-parser/plan.md`.
+Two-stage pipeline, each stage exposed as its own public API and CLI:
+
+- **Stage 1 — `createFileParser` / `parseMany` / `filecrystal extract`**:
+  raw text extraction per file (xlsx/pdf/docx/image). No LLM in the critical
+  path unless a page needs OCR.
+- **Stage 2 — `createStructuredExtractor` / `filecrystal structure`**: merges
+  one-or-many `ParsedRaw` into a prompt, auto-batches when combined text
+  exceeds `maxInputChars` (default 80 000), then passes the model's JSON
+  output through verbatim (prompt owns the schema). Falls back to
+  `{ text: ... }` when JSON repair can't recover the response.
+
+OCR and LLM backends are unified behind the **OpenAI-compatible** interface
+(`baseUrl` + `apiKey` + `model`); 百炼 is the default preset. See
+`specs/001-file-parser/plan.md`.
 
 ## Testing
 
 - Unit tests mock `OcrBackend` / `LlmBackend`.
-- E2E tests are gated on `FILECRYSTAL_BASE_URL` + `FILECRYSTAL_API_KEY`.
+- E2E tests are gated on `FILECRYSTAL_MODEL_BASE_URL` +
+  `FILECRYSTAL_MODEL_API_KEY`.
 - Fixtures committed to git are < 1 MB; larger samples are fetched via
   `scripts/` on demand.
 
@@ -45,6 +67,8 @@ behind the **OpenAI-compatible** interface (`baseUrl` + `apiKey` + `model`);
 - Changing a public type or JSON shape requires a changeset.
 - New extractor must land with a unit test and at least one fixture.
 - Never write API keys into `metrics`, `warnings`, snapshots or logs.
+- The CLI must never print anonymised/sanitised sensitive data it doesn't
+  own (no real corp names, real bank accounts, real IDs in docs or tests).
 
 ## Quality Gates
 
@@ -58,6 +82,6 @@ behind the **OpenAI-compatible** interface (`baseUrl` + `apiKey` + `model`);
 - Do not tailor `src/` business logic to a single caller; keep the contract
   provider-neutral.
 - Do not commit build products outside `dist/` (and `dist/` is gitignored).
-- Do not commit `tests/reports/` — that directory is CI output only.
+- Do not commit `tests/reports/`, `tmp_data/`, or `api-key.txt`.
 - Do not touch `specs/001-file-parser/contracts/types.d.ts` without also
   updating `src/types.ts` in the same PR.

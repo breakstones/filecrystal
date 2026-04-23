@@ -39,15 +39,21 @@ export async function extractDocx(
   const embeddedImages: Buffer[] = ext === '.docx' ? await extractEmbeddedImages(filePath) : [];
 
   if (ctx.detectSeals && embeddedImages.length > 0) {
-    let sealMs = 0;
-    for (const [i, img] of embeddedImages.entries()) {
-      const start = Date.now();
-      const res = await ctx.visionOcr.recognize({
-        imageBuffer: img,
-        mimeType: 'image/png',
-        detectSealsAndSignatures: true,
-      });
-      sealMs += Date.now() - start;
+    const sealWallStart = Date.now();
+    const perImage = await Promise.all(
+      embeddedImages.map((img, i) =>
+        ctx.ocrLimiter(async () => {
+          const res = await ctx.visionOcr.recognize({
+            imageBuffer: img,
+            mimeType: 'image/png',
+            detectSealsAndSignatures: true,
+          });
+          return { i, res };
+        }),
+      ),
+    );
+    for (const { i, res } of perImage) {
+      ctx.metrics.incImagesProcessed();
       ctx.metrics.recordCall({
         model: res.model,
         provider: 'openai-compat',
@@ -79,7 +85,7 @@ export async function extractDocx(
         });
       }
     }
-    ctx.metrics.addSealMs(sealMs);
+    ctx.metrics.addSealMs(Date.now() - sealWallStart);
   }
 
   ctx.metrics.addExtractMs(Date.now() - extractStart);

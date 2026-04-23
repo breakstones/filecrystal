@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import sharp from 'sharp';
 import type {
   ParsedRaw,
   ParsedRawPage,
@@ -7,7 +8,6 @@ import type {
   SignatureDetection,
 } from '../types.js';
 import { selectPages } from './utils/select-pages.js';
-import { createLimiter } from '../utils/concurrency.js';
 import type { ExtractorContext } from './context.js';
 
 const require = createRequire(import.meta.url);
@@ -69,6 +69,7 @@ async function loadPdfJs(): Promise<PdfJsModule> {
 
 const OCR_TEXT_THRESHOLD = 20;
 const RENDER_SCALE = 2.0;
+const JPEG_QUALITY = 85;
 
 export interface PdfExtractResult {
   raw: ParsedRaw;
@@ -100,7 +101,7 @@ export async function extractPdf(
   let sealMs = 0;
   let peakConcurrency = 0;
 
-  const limiter = createLimiter(ctx.ocrConfig.maxConcurrency);
+  const limiter = ctx.ocrLimiter;
   let inFlight = 0;
 
   const perPage = await Promise.all(
@@ -133,7 +134,11 @@ export async function extractPdf(
 
   await pdf.cleanup();
   await pdf.destroy();
-  ctx.metrics.addExtractMs(Date.now() - extractStart - ocrMs - sealMs);
+  // OCR/seal already run concurrently; walltime - ocr - seal can underflow.
+  // Clamp to 0 so extractMs strictly reflects non-OCR work on the critical path.
+  const walltime = Date.now() - extractStart;
+  const concurrentFloor = Math.max(ocrMs, sealMs);
+  ctx.metrics.addExtractMs(Math.max(0, walltime - concurrentFloor));
 
   const raw: ParsedRaw = { pages, fullText };
   if (seals.length > 0) raw.seals = seals;
@@ -172,12 +177,13 @@ async function processPage(
     let blocks: ParsedRawPage['blocks'];
 
     if (needsOcr || ctx.detectSeals) {
-      const png = await renderPageToPng(pdf, page);
+      const rendered = await renderPageForOcr(pdf, page, ctx.ocrConfig.imageMaxLongEdge);
+      ctx.metrics.incImagesProcessed();
       if (needsOcr) {
         const ocrStart = Date.now();
         const ocrResult = await ctx.ocr.recognize({
-          imageBuffer: png,
-          mimeType: 'image/png',
+          imageBuffer: rendered.buffer,
+          mimeType: rendered.mime,
           detectSealsAndSignatures: ctx.detectSeals,
           pageNoHint: pageNo,
         });
@@ -210,8 +216,8 @@ async function processPage(
       } else if (ctx.detectSeals) {
         const sealStart = Date.now();
         const res = await ctx.visionOcr.recognize({
-          imageBuffer: png,
-          mimeType: 'image/png',
+          imageBuffer: rendered.buffer,
+          mimeType: rendered.mime,
           detectSealsAndSignatures: true,
           pageNoHint: pageNo,
         });
@@ -256,13 +262,21 @@ function buildTextLayerString(content: PdfJsTextContent): string {
   return out.trim();
 }
 
-async function renderPageToPng(pdf: PdfJsDocument, page: PdfJsPage): Promise<Buffer> {
+async function renderPageForOcr(
+  pdf: PdfJsDocument,
+  page: PdfJsPage,
+  longEdgeCap: number,
+): Promise<{ buffer: Buffer; mime: 'image/jpeg' }> {
   const viewport = page.getViewport({ scale: RENDER_SCALE });
   const { canvas, context } = pdf.canvasFactory.create(viewport.width, viewport.height);
   await page.render({ canvasContext: context, viewport }).promise;
-  const buf = canvas.toBuffer('image/png');
+  const raw = canvas.toBuffer('image/png');
   pdf.canvasFactory.destroy({ canvas, context });
-  return buf;
+  const buffer = await sharp(raw)
+    .resize(longEdgeCap, longEdgeCap, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+    .toBuffer();
+  return { buffer, mime: 'image/jpeg' };
 }
 
 function normaliseSeal(s: Partial<SealDetection> & { bbox?: [number, number, number, number] }, pageNo: number, idx: number): SealDetection {

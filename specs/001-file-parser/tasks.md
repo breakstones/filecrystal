@@ -42,9 +42,9 @@
   `llm/resolve-locator.ts` (locator_hint → SourceLocator).
 - [x] C-02 `cache/` with atomic writes and `proper-lockfile`.
 - [x] C-03 `metrics/` + `pricing.ts` producing quality / performance / cost.
-- [x] C-04 `cli.ts` exposes `parse` and `schema` commands.
-- [ ] C-05 `examples/openclaw-hook/` full `before_prompt_build` example +
-  README prose.
+- [x] C-04 `cli.ts` exposes `extract` and `structure` subcommands.
+- [x] C-05 `examples/` with `cli-workflow.sh` (CLI end-to-end),
+  `sdk-workflow.mjs` (SDK end-to-end) and `README.md` index.
 - [ ] C-06 GitHub Actions: `ci.yml` (Node 18/20/22 × ubuntu/windows) +
   `release.yml` (changesets).
 - [ ] C-07 First changeset + `NPM_TOKEN` secret + first `pnpm publish`.

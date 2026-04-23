@@ -18,19 +18,21 @@ export async function extractImage(
   const normalised = await sharp(input)
     .rotate() // no-args rotate() auto-orients using EXIF metadata
     .resize(longEdge, longEdge, { fit: 'inside', withoutEnlargement: true })
-    .grayscale()
-    .png()
+    .jpeg({ quality: 85, mozjpeg: true })
     .toBuffer();
 
   ctx.metrics.addExtractMs(Date.now() - extractStart);
+  ctx.metrics.incImagesProcessed();
 
   const ocrStart = Date.now();
-  const ocrResult = await ctx.ocr.recognize({
-    imageBuffer: normalised,
-    mimeType: 'image/png',
-    detectSealsAndSignatures: ctx.detectSeals,
-    pageNoHint: 1,
-  });
+  const ocrResult = await ctx.ocrLimiter(() =>
+    ctx.ocr.recognize({
+      imageBuffer: normalised,
+      mimeType: 'image/jpeg',
+      detectSealsAndSignatures: ctx.detectSeals,
+      pageNoHint: 1,
+    }),
+  );
   ctx.metrics.addOcrMs(Date.now() - ocrStart);
   ctx.metrics.recordCall({
     model: ocrResult.model,

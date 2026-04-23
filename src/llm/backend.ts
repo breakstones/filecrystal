@@ -1,5 +1,3 @@
-import type { ExtractedField } from '../types.js';
-
 export interface LlmExtractRequest {
   systemPrompt: string;
   userPrompt: string;
@@ -9,8 +7,21 @@ export interface LlmExtractRequest {
   signal?: AbortSignal;
 }
 
+/**
+ * The result of an LLM extraction call.
+ *
+ * `fields` is whatever JSON shape the prompt asked the model to produce — we
+ * pass it through verbatim so the caller's prompt owns the schema. When the
+ * model's raw output cannot be parsed as JSON even after best-effort repair,
+ * we fall back to `{ text: "<raw model output>" }` so the caller still gets
+ * usable content.
+ */
 export interface LlmExtractResult {
-  fields: Record<string, ExtractedField>;
+  fields: Record<string, unknown>;
+  /** True when we fell back to `{ text }` because JSON parsing failed. */
+  parseFailed?: boolean;
+  /** The raw string returned by the model, always available for debugging. */
+  rawContent?: string;
   usage?: {
     promptTokens?: number;
     completionTokens?: number;

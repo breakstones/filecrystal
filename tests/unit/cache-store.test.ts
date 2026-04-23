@@ -49,6 +49,7 @@ const sample: ParseResult = {
       cacheHit: false,
       ocrConcurrencyPeak: 0,
       retries: 0,
+      imagesProcessed: 0,
     },
     cost: { totalYuan: 0, callsByModel: {} },
   },

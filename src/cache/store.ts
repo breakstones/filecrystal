@@ -1,6 +1,5 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
-import lockfile from 'proper-lockfile';
 import type { ParseResult } from '../types.js';
 
 export interface CacheStore {
@@ -22,15 +21,13 @@ export function createFileCacheStore(cacheDir: string): CacheStore {
     async put(key, value) {
       await mkdir(cacheDir, { recursive: true });
       const filePath = join(cacheDir, `${key}.json`);
-      const tmpPath = `${filePath}.tmp`;
-      let release: (() => Promise<void>) | undefined;
-      try {
-        release = await lockfile.lock(cacheDir, { retries: 3, realpath: false });
-        await writeFile(tmpPath, JSON.stringify(value), 'utf8');
-        await rename(tmpPath, filePath);
-      } finally {
-        if (release) await release();
-      }
+      // Unique tmp path per writer — different keys never collide, same-key
+      // writers only race at the final rename (atomic on both POSIX and NTFS).
+      const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random()
+        .toString(36)
+        .slice(2, 10)}.tmp`;
+      await writeFile(tmpPath, JSON.stringify(value), 'utf8');
+      await rename(tmpPath, filePath);
     },
   };
 }

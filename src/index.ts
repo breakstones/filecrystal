@@ -1,4 +1,16 @@
 export { createFileParser } from './parser.js';
+export { createStructuredExtractor, toStructureSource } from './structure.js';
+export type {
+  StructuredExtractor,
+  StructureOptions,
+  StructureResult,
+  StructureSource,
+  StructureBatchStat,
+} from './structure.js';
+export { parseMany } from './batch.js';
+export type { ParseManyOptions, ParseManyResult, ParseManyItem } from './batch.js';
+export { toMarkdown } from './markdown.js';
+export { DEFAULT_STRUCTURE_PROMPT } from './prompts/default-structure.js';
 export { resolveConfig, QWEN_DEFAULT_BASE_URL } from './config.js';
 export { SCHEMA_VERSION } from './types.js';
 export type {

@@ -10,6 +10,7 @@ export class MetricsCollector {
   private llmMs = 0;
   private ocrConcurrencyPeak = 0;
   private cacheHit = false;
+  private imagesProcessed = 0;
 
   recordCall(call: CallRecord): void {
     this.calls.push(call);
@@ -35,6 +36,9 @@ export class MetricsCollector {
   }
   incWarning(): void {
     this.warnings++;
+  }
+  incImagesProcessed(n = 1): void {
+    this.imagesProcessed += n;
   }
 
   build(args: {
@@ -90,6 +94,7 @@ export class MetricsCollector {
         cacheHit: this.cacheHit,
         ocrConcurrencyPeak: this.ocrConcurrencyPeak,
         retries,
+        imagesProcessed: this.imagesProcessed,
       },
       cost: {
         totalYuan: Math.round(totalYuan * 10000) / 10000,

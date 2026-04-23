@@ -1,9 +1,22 @@
+# Dependencies / build output
 node_modules/
 dist/
 coverage/
 
-# Test artifacts
+# Test artifacts (benchmark runs write here)
 tests/reports/
+
+# Real / private document corpora — never commit
+tmp_data/
+
+# Local secrets (CLI reads FILECRYSTAL_MODEL_API_KEY from env;
+# api-key.txt is just a developer-convenience scratch file)
+api-key.txt
+api-key
+*.api-key
+.env
+.env.local
+.env.*.local
 
 # Editor / OS
 .DS_Store
@@ -19,15 +32,14 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Env
-.env
-.env.local
-.env.*.local
-
 # Cache
 .cache/
 .tsbuildinfo
 *.tsbuildinfo
+
+# Claude Code local runtime
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
 
 # Local scratch
 tmp/

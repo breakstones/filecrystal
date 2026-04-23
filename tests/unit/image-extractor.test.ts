@@ -6,6 +6,7 @@ import { extractImage } from '../../src/extractors/image.js';
 import { createMockOcrBackend } from '../../src/mocks/ocr.js';
 import { MetricsCollector } from '../../src/metrics/collector.js';
 import type { ExtractorContext } from '../../src/extractors/context.js';
+import { createLimiter } from '../../src/utils/concurrency.js';
 
 const fixturesDir = join(process.cwd(), 'tests', 'fixtures');
 const fixturePath = join(fixturesDir, 'sample.png');
@@ -33,6 +34,7 @@ describe('extractImage', () => {
         retries: 0,
         imageMaxLongEdge: 2000,
       },
+      ocrLimiter: createLimiter(3),
       detectSeals: false,
       fullPages: false,
       metrics,

@@ -12,25 +12,26 @@ structured fields with per-field locators (page/bbox, sheet/cell, doc-anchor).
 
 Primary audience:
 
-- **OpenClaw ecosystem** — plugins use filecrystal inside the
-  `before_prompt_build` hook to feed structured file context into the LLM.
-- **CLI users / ops** — one-off parsing, scripting, regression runs.
-- **Third-party Node.js consumers** — any app that needs a consistent
-  "file → JSON" abstraction backed by any OpenAI-compatible API.
+- **Node.js SDK consumers** — any app that needs a consistent
+  "file → Markdown / prompt-defined JSON" abstraction backed by any
+  OpenAI-compatible API.
+- **CLI users / ops** — shell scripts, CI pipelines, batch jobs, regression
+  runs, language-agnostic integrations.
 
 ## 2. User Stories
 
-- **S1 — OpenClaw hook integration**: as an OpenClaw plugin author, I import
-  `createFileParser` and call `parser.parse(filePath)` on the session's
-  attached files so that the LLM gets a deterministic JSON shape regardless of
-  file format.
+- **S1 — SDK integration**: as a Node.js developer, I `import { createFileParser,
+  parseMany, toMarkdown }` from `filecrystal`, point it at any OpenAI-compatible
+  endpoint, and turn a mixed-format inbox into normalised Markdown + metrics
+  with a single `parseMany` call.
 - **S2 — CLI triage**: as an operator, I run
-  `filecrystal parse ./contract.pdf --prompt ./prompts/contract.md --mode api
-  --pretty` to inspect the parsed JSON for a single file.
-- **S3 — Third-party library consumer**: as a Node.js developer outside the
-  OpenClaw org, I depend on `filecrystal` from npm, configure my own
-  OpenAI-compatible endpoint (OpenAI / Moonshot / DeepSeek / self-hosted
-  vLLM / 百炼) and reuse the same contract.
+  `filecrystal extract ./contract.pdf && filecrystal structure ./contract.md
+  --prompt ./prompts/contract.prompt.md` to inspect a file's text and then
+  its extracted fields.
+- **S3 — Prompt-driven extraction**: as a domain engineer, I write a prompt
+  file (Markdown + YAML frontmatter) describing the exact JSON shape I want,
+  and filecrystal returns that shape verbatim — with JSON-repair + `{text}`
+  fallback so non-JSON responses never break my pipeline.
 
 ## 3. Scope
 

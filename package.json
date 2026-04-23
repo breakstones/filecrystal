@@ -1,31 +1,31 @@
 {
   "name": "filecrystal",
   "version": "0.1.0",
-  "description": "Universal file parser for PDFs, images, xlsx/xls, docx with structured extraction via any OpenAI-compatible API. Built for the OpenClaw ecosystem.",
+  "description": "Universal file parser for PDFs, images, xlsx/xls, docx — outputs Markdown and prompt-defined JSON via any OpenAI-compatible API.",
   "keywords": [
     "file-parser",
     "pdf",
     "xlsx",
     "docx",
+    "markdown",
     "ocr",
     "llm",
     "openai-compatible",
     "qwen",
     "dashscope",
-    "openclaw",
     "extract",
-    "schema",
-    "locator"
+    "structure",
+    "json-extraction"
   ],
   "license": "MIT",
   "author": "stone <stone.netclub@gmail.com>",
-  "homepage": "https://github.com/openclaw/filecrystal#readme",
+  "homepage": "https://github.com/breakstones/filecrystal#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/openclaw/filecrystal.git"
+    "url": "git+https://github.com/breakstones/filecrystal.git"
   },
   "bugs": {
-    "url": "https://github.com/openclaw/filecrystal/issues"
+    "url": "https://github.com/breakstones/filecrystal/issues"
   },
   "engines": {
     "node": ">=18.18"
@@ -93,7 +93,6 @@
     "openai": "^4.67.0",
     "p-limit": "^6.1.0",
     "pdfjs-dist": "^4.7.76",
-    "proper-lockfile": "^4.1.2",
     "sharp": "^0.33.5",
     "word-extractor": "^1.0.4",
     "xlsx": "^0.18.5",
@@ -104,11 +103,12 @@
     "@changesets/cli": "^2.27.9",
     "@types/mime-types": "^2.1.4",
     "@types/node": "^20.16.10",
-    "@types/proper-lockfile": "^4.1.4",
     "@typescript-eslint/eslint-plugin": "^8.8.0",
     "@typescript-eslint/parser": "^8.8.0",
     "@vitest/coverage-v8": "^2.1.2",
+    "docx": "^9.6.1",
     "eslint": "^9.12.0",
+    "pdf-lib": "^1.17.1",
     "prettier": "^3.3.3",
     "tsup": "^8.3.0",
     "tsx": "^4.19.1",
