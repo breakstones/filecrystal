@@ -2,8 +2,9 @@ import { Command } from 'commander';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { createFileParser } from '../parser.js';
-import { parseMany } from '../batch.js';
+import { parseMany, type ParseManyItem } from '../batch.js';
 import { toMarkdown } from '../markdown.js';
+import { classifyInputs, type InputSlot } from '../utils/archive.js';
 import { buildConfig, writeJson, type CommonOptions } from './shared.js';
 
 interface ExtractOpts extends CommonOptions {
@@ -14,11 +15,28 @@ interface ExtractOpts extends CommonOptions {
   detectSeals?: boolean;
 }
 
+export type ExtractSummaryItem = {
+  path: string;
+  ok: boolean;
+  durationMs: number;
+  outFile?: string;
+  error?: string;
+  code?: string;
+  message?: string;
+};
+
 export function registerExtractCommand(program: Command): void {
   program
     .command('extract')
-    .description('Parse files into Markdown. Multi-file + concurrent. Real OCR + seal detection.')
-    .argument('<paths...>', 'one or more file paths (pdf / jpg / png / xlsx / xls / docx / doc)')
+    .description(
+      'Parse files into Markdown. Multi-file + concurrent. Real OCR + seal detection. ' +
+        '.zip inputs are expanded into a same-named sibling directory; ' +
+        '.md / .markdown / .txt inputs are reported as already-text passthroughs.',
+    )
+    .argument(
+      '<paths...>',
+      'one or more file paths (pdf / jpg / png / xlsx / xls / docx / doc / zip / md / txt)',
+    )
     .option(
       '--out <dir>',
       'output directory for `.md` files. Default: same directory as each input file.',
@@ -43,19 +61,22 @@ export function registerExtractCommand(program: Command): void {
       if (opts.force) parseOptions.force = true;
       if (opts.detectSeals === false) parseOptions.detectSeals = false;
 
+      const classified = await classifyInputs(paths);
+
       const concurrency = opts.concurrency
         ? Math.max(1, Number(opts.concurrency) || 1)
-        : Math.min(paths.length, 10);
+        : Math.max(1, Math.min(classified.parseInputs.length || 1, 10));
 
-      const batch = await parseMany(parser, paths, {
-        concurrency,
-        parse: parseOptions,
-      });
+      const batch =
+        classified.parseInputs.length > 0
+          ? await parseMany(parser, classified.parseInputs, { concurrency, parse: parseOptions })
+          : { items: [] as ParseManyItem[], ok: 0, failed: 0, total: 0, totalMs: 0 };
 
-      const items: Array<Record<string, unknown>> = [];
+      // Write .md for each successful parse + build lookup by path.
+      const byPath = new Map<string, ExtractSummaryItem>();
       const ensuredDirs = new Set<string>();
       for (const item of batch.items) {
-        const entry: Record<string, unknown> = {
+        const entry: ExtractSummaryItem = {
           path: item.path,
           ok: item.ok,
           durationMs: item.durationMs,
@@ -76,21 +97,51 @@ export function registerExtractCommand(program: Command): void {
           if (item.error) entry.error = item.error;
           if (item.code) entry.code = item.code;
         }
-        items.push(entry);
+        byPath.set(item.path, entry);
+      }
+      for (const p of classified.passthroughInputs) {
+        byPath.set(p, { path: p, ok: true, durationMs: 0, message: 'Already a text file' });
       }
 
-      writeJson({
-        total: batch.total,
-        ok: batch.ok,
-        failed: batch.failed,
+      // Assemble items in slot order.
+      const items: ExtractSummaryItem[] = [];
+      for (const slot of classified.slots) {
+        if (slot.kind === 'archive-failed') {
+          items.push({
+            path: slot.path,
+            ok: false,
+            durationMs: 0,
+            error: slot.error ?? 'archive expansion failed',
+            ...(slot.code ? { code: slot.code } : {}),
+          });
+          continue;
+        }
+        const entry = byPath.get(slot.path);
+        if (entry) items.push(entry);
+      }
+
+      const ok = items.filter((i) => i.ok).length;
+      const failed = items.filter((i) => !i.ok).length;
+      const total = items.length;
+
+      const summary: Record<string, unknown> = {
+        total,
+        ok,
+        failed,
         totalMs: batch.totalMs,
         items,
-      });
+      };
+      if (classified.archives.length > 0) summary.archives = classified.archives;
 
-      if (batch.failed > 0) process.exitCode = 3;
+      writeJson(summary);
+
+      if (failed > 0) process.exitCode = 3;
     });
 }
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+// Keep re-exports for consumers/tests that import the input slot type.
+export type { InputSlot };

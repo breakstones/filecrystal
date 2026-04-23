@@ -99,7 +99,15 @@ filecrystal extract <paths...> [options]
 |---|---|
 | `<paths...>` | 一个或多个文件路径。Windows 中文路径用双引号。 |
 
-**支持的文件格式**:`pdf` · `jpg` / `jpeg` · `png` · `xlsx` · `xls` · `docx` · `doc`
+**接受的输入类型**:
+
+| 类型 | 扩展名 | 处理方式 |
+|---|---|---|
+| 需解析 | `pdf` · `jpg` / `jpeg` · `png` · `xlsx` · `xls` · `docx` · `doc` | 走 OCR/xlsx/docx 管线,产出 `.md` |
+| 文本直通 | `md` · `markdown` · `txt` | **不解析**,直接在 `items[]` 标记 `message: "Already a text file"`,用户按原路径读取 |
+| 压缩包 | `zip` | 解压到同目录的**同名子目录**(`docs/bundle.zip` → `docs/bundle/`),里面的文件按上述两类再分别处理。嵌套 zip 会落盘但**不递归**,附上 warning。 |
+
+输入可**任意混合**,例如:`filecrystal extract a.pdf notes.md bundle.zip`。顺序保持用户传入顺序,zip 内的 entry 以文件名字母序追加在其父 zip 之后。
 
 ### 1.3 选项
 
@@ -158,27 +166,34 @@ filecrystal extract <paths...> [options]
 
 ```json
 {
-  "total": 3,
-  "ok": 3,
-  "failed": 0,
+  "total": 5,
+  "ok": 4,
+  "failed": 1,
   "totalMs": 28345,
-  "items": [
+  "archives": [
     {
-      "path": "docs/合同.pdf",
-      "ok": true,
-      "durationMs": 23218,
-      "outFile": "docs/合同.md"
-    },
-    {
-      "path": "bad.pdf",
-      "ok": false,
-      "durationMs": 30041,
-      "error": "OCR response has no content",
-      "code": "OCR_FAILED"
+      "archive": "docs/bundle.zip",
+      "extractedDir": "docs/bundle",
+      "expanded": 2,
+      "passthrough": 1,
+      "warnings": ["nested archive docs/bundle/inner.zip was not recursed"]
     }
+  ],
+  "items": [
+    { "path": "docs/合同.pdf",          "ok": true,  "durationMs": 23218, "outFile": "docs/合同.md" },
+    { "path": "docs/notes.md",          "ok": true,  "durationMs": 0,     "message": "Already a text file" },
+    { "path": "docs/bundle/readme.txt", "ok": true,  "durationMs": 0,     "message": "Already a text file" },
+    { "path": "docs/bundle/data.xlsx",  "ok": true,  "durationMs": 234,   "outFile": "docs/bundle/data.md" },
+    { "path": "docs/bundle/bad.pdf",    "ok": false, "durationMs": 30041, "error": "OCR response has no content", "code": "OCR_FAILED" }
   ]
 }
 ```
+
+字段说明:
+- `archives`:仅当输入含 `.zip` 时出现;每条记录对应一个源 zip,含解压目标、可解析数量、文本直通数量、warnings(嵌套 zip 等)。
+- `items[].message`:仅文本直通条目(`.md` / `.markdown` / `.txt`)会带此字段;这类条目不会有 `outFile`,因为不重写。
+- `items[].outFile`:正常解析条目(写到 `<stem>.md`)才有。
+- 条目顺序:用户原输入顺序 → 每个 zip 内部字母序。
 
 ### 1.5 示例
 
@@ -199,6 +214,15 @@ node dist/cli.js extract docs/*.pdf --no-detect-seals
 
 # 5) 处理长文档,关头尾截断
 node dist/cli.js extract docs/长合同.pdf --full-pages
+
+# 6) zip 输入:解压到 docs/bundle/ ,然后批量解析里面的支持格式
+node dist/cli.js extract docs/bundle.zip
+
+# 7) 混合输入:pdf + md + zip(md 直通,pdf 和 zip 内容走解析)
+node dist/cli.js extract docs/合同.pdf docs/notes.md docs/bundle.zip
+
+# 8) 只传文本文件:不调 OCR/LLM,秒返回
+node dist/cli.js extract docs/README.md docs/CHANGELOG.md
 
 # 6) 结合环境变量
 FILECRYSTAL_VISION_MODEL=qwen-vl-plus \

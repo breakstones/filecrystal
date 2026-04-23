@@ -1,8 +1,10 @@
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 
 export const fixturesDir = join(process.cwd(), 'tests', 'fixtures');
 
@@ -77,6 +79,22 @@ export function buildXlsx(path: string): void {
   ]);
   XLSX.utils.book_append_sheet(wb, ws, '汇总');
   writeFileSync(path, XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer);
+}
+
+/**
+ * Build a `.zip` from an in-memory map of `{ entryName: Buffer }`.
+ * Used by archive/CLI unit tests to produce tiny deterministic archives.
+ *
+ * Supports nested directories in `entryName` (e.g. `sub/foo.xlsx`).
+ */
+export async function buildZipFixture(
+  outPath: string,
+  entries: Record<string, Buffer>,
+): Promise<void> {
+  const zip = new JSZip();
+  for (const [name, buf] of Object.entries(entries)) zip.file(name, buf);
+  const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+  await writeFile(outPath, buffer);
 }
 
 export async function ensureAllFixtures(): Promise<void> {
