@@ -4,6 +4,13 @@ export interface LlmExtractRequest {
   model?: string;
   temperature?: number;
   responseFormatJson?: boolean;
+  /**
+   * Per-call extra body fields merged over the backend-level `extraBody`.
+   * A request-level key overrides the same backend-level key (so e.g. a
+   * prompt frontmatter with `thinking: false` can override an env-level
+   * default of `enable_thinking: true`).
+   */
+  extraBody?: Record<string, unknown>;
   signal?: AbortSignal;
 }
 

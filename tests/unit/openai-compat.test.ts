@@ -236,6 +236,25 @@ describe('createOpenAICompatLlmBackend', () => {
     expect(result.parseFailed).toBeFalsy();
   });
 
+  it('merges backend extraBody with per-request extraBody (request wins)', async () => {
+    create.mockResolvedValueOnce({ choices: [{ message: { content: '{}' } }] });
+    const llm = createOpenAICompatLlmBackend({
+      baseUrl: 'https://x/v1',
+      apiKey: 'k',
+      model: 'qwen-plus',
+      retries: 0,
+      extraBody: { enable_thinking: true, thinking_budget: 500 }, // backend default
+    });
+    await llm.extract({
+      systemPrompt: 's',
+      userPrompt: 'u',
+      extraBody: { enable_thinking: false }, // request-level override
+    });
+    const body = create.mock.calls[0]![0];
+    expect(body.enable_thinking).toBe(false); // overridden
+    expect(body.thinking_budget).toBe(500); // preserved
+  });
+
   it('allows disabling json_object format', async () => {
     create.mockResolvedValueOnce({
       choices: [{ message: { content: JSON.stringify({}) } }],

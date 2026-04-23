@@ -95,6 +95,14 @@ export function createStructuredExtractor(config: FileParserConfig): StructuredE
       // just an Object.assign on top-level keys, so order within an input
       // segment doesn't matter as long as we preserve input order across
       // batches (which we do by mapping over `batches` indices).
+      // Prompt-level `thinking` opts a single prompt into / out of
+      // provider reasoning (e.g. Qwen3 `enable_thinking`), overriding the
+      // env-level default.
+      const perPromptExtraBody =
+        frontmatter.thinking !== undefined
+          ? { enable_thinking: frontmatter.thinking }
+          : undefined;
+
       const perBatch = await Promise.all(
         batches.map(async (batch) => {
           const mergedRaw = mergeRawBatch(batch);
@@ -104,6 +112,7 @@ export function createStructuredExtractor(config: FileParserConfig): StructuredE
             systemPrompt: body,
             userPrompt,
             ...(frontmatter.model ? { model: frontmatter.model } : {}),
+            ...(perPromptExtraBody ? { extraBody: perPromptExtraBody } : {}),
             temperature: frontmatter.temperature ?? cfg.extraction.defaultTemperature,
           });
           return { batch, chars, res };

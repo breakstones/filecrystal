@@ -32,6 +32,10 @@ export function createOpenAICompatLlmBackend(opts: OpenAICompatLlmOptions): LlmB
     async extract(req: LlmExtractRequest): Promise<LlmExtractResult> {
       const start = Date.now();
       const model = req.model ?? opts.model;
+      // Merge order: backend-level extraBody first, then per-request extraBody
+      // overrides it (so a prompt's `thinking: false` trumps a global env-level
+      // `enable_thinking: true`).
+      const mergedExtra = { ...(extraBody ?? {}), ...(req.extraBody ?? {}) };
       const body = {
         model,
         messages: [
@@ -41,7 +45,7 @@ export function createOpenAICompatLlmBackend(opts: OpenAICompatLlmOptions): LlmB
         temperature: req.temperature ?? 0.1,
         response_format:
           req.responseFormatJson === false ? undefined : { type: 'json_object' as const },
-        ...(extraBody ?? {}),
+        ...mergedExtra,
       };
       const completion = await retry(
         () =>

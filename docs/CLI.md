@@ -333,7 +333,8 @@ Markdown + YAML frontmatter:
 ---
 name: account-certificate         # 可选,显示在 promptName
 model: qwen-plus                  # 可选,覆盖 --text-model
-temperature: 0.1                  # 可选
+temperature: 0.1                  # 可选,默认 0.1
+thinking: true                    # 可选,覆盖 FILECRYSTAL_TEXT_MODEL_THINKING
 ---
 
 # 角色
@@ -351,6 +352,16 @@ temperature: 0.1                  # 可选
 # 注意
 - `account` 去掉所有空格
 ````
+
+**Frontmatter 字段优先级**:
+
+| 字段 | 来源优先级(高 → 低) |
+|---|---|
+| `model` | `frontmatter.model` > `--text-model` > env `FILECRYSTAL_TEXT_MODEL` > 默认 `qwen-plus` |
+| `temperature` | `frontmatter.temperature` > 配置 `extraction.defaultTemperature` > 默认 `0.1` |
+| `thinking` | `frontmatter.thinking` > env `FILECRYSTAL_TEXT_MODEL_THINKING` > 默认 `false` |
+
+`thinking: false` 在 prompt 里会显式关闭思考模式,即使 env 默认开启 — 让你对某个特定 prompt 单独关掉推理而不影响其他 prompt。
 
 内置 4 个示例在 [`scripts/prompts/`](../scripts/prompts):
 - `contract.prompt.md` — 工程合同关键字段

@@ -24,6 +24,31 @@ body`;
     expect(out.body).toBe('just a body');
     expect(out.frontmatter.name).toBeUndefined();
   });
+
+  it('parses `thinking: true` into frontmatter.thinking', () => {
+    const out = parsePromptFile(`---
+name: with-thinking
+thinking: true
+---
+body`);
+    expect(out.frontmatter.thinking).toBe(true);
+  });
+
+  it('parses `thinking: false` into frontmatter.thinking', () => {
+    const out = parsePromptFile(`---
+thinking: false
+---
+body`);
+    expect(out.frontmatter.thinking).toBe(false);
+  });
+
+  it('leaves frontmatter.thinking undefined when absent', () => {
+    const out = parsePromptFile(`---
+name: x
+---
+body`);
+    expect(out.frontmatter.thinking).toBeUndefined();
+  });
 });
 
 describe('buildUserPrompt', () => {

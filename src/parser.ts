@@ -182,10 +182,15 @@ class FileParserImpl implements FileParser {
       const llmStart = Date.now();
       const parsed = parsePromptFile(options.prompt);
       const userPrompt = buildUserPrompt(parsed.body, raw);
+      const perPromptExtraBody =
+        parsed.frontmatter.thinking !== undefined
+          ? { enable_thinking: parsed.frontmatter.thinking }
+          : undefined;
       const llmResult = await this.llm.extract({
         systemPrompt: parsed.body,
         userPrompt,
         ...(parsed.frontmatter.model ? { model: parsed.frontmatter.model } : {}),
+        ...(perPromptExtraBody ? { extraBody: perPromptExtraBody } : {}),
         temperature: parsed.frontmatter.temperature ?? this.cfg.extraction.defaultTemperature,
       });
       // Pass the prompt's JSON shape through verbatim; the caller owns the schema.

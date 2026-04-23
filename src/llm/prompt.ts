@@ -6,6 +6,12 @@ export interface PromptFrontmatter {
   schemaVersion?: string;
   model?: string;
   temperature?: number;
+  /**
+   * Opt a single prompt into / out of provider thinking-mode (e.g. Qwen3
+   * `enable_thinking`). Takes precedence over the env-level default
+   * (`FILECRYSTAL_TEXT_MODEL_THINKING`). Omit to inherit env/config.
+   */
+  thinking?: boolean;
   extraction?: 'llm' | 'rule-based';
 }
 
