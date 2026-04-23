@@ -69,6 +69,15 @@ OCR and LLM backends are unified behind the **OpenAI-compatible** interface
 - Never write API keys into `metrics`, `warnings`, snapshots or logs.
 - The CLI must never print anonymised/sanitised sensitive data it doesn't
   own (no real corp names, real bank accounts, real IDs in docs or tests).
+- **Remote side-effects require explicit user approval**. The assistant
+  may freely do local work (edit files, run build/test/typecheck/lint,
+  read-only git commands, `npm pack --dry-run`, write benchmark reports
+  under `tests/reports/`), but must **ask first** before running any of:
+  `git add` / `git commit` / `git push` / `git tag` / `git push --tags` /
+  `pnpm changeset version` / `pnpm publish` / `npm publish` / any command
+  that mutates git remotes, `git config`, or `npm config`. After a
+  self-contained unit of local work, the assistant reports "ready to
+  commit/push/publish?" and waits for confirmation.
 
 ## Quality Gates
 
