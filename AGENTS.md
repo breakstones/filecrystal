@@ -87,6 +87,18 @@ OCR and LLM backends are unified behind the **OpenAI-compatible** interface
   self-contained unit of local work, the assistant reports "ready to
   commit/push/publish?" and waits for confirmation.
 
+  **Version bumps — ironclad rule**: the assistant MUST pre-announce the
+  planned next version string (e.g. `0.5.2` vs `0.6.0` vs `1.0.0`) and
+  wait for explicit user confirmation of that exact string BEFORE running
+  `pnpm changeset version`, `git tag`, `git push --tags`, `pnpm publish`,
+  or `npm publish`. A staged `.changeset/*.md` is not considered version
+  approval — the semver classification (patch / minor / major) and the
+  resolved next version string are two decisions the user must sign off
+  on separately. If a version has already been published and the user
+  later wants a different number, never assume rollback semantics — ask
+  whether to `npm unpublish` / delete the remote tag / force-push, or
+  leave the published version as a historical island.
+
 ## Quality Gates
 
 - coverage ≥ 80 % · typecheck zero errors · ESLint zero errors · `dist/`
