@@ -52,7 +52,7 @@ export FILECRYSTAL_MODEL_API_KEY=sk-your-key-here
 
 # Optional overrides
 export FILECRYSTAL_VISION_MODEL=qwen-vl-ocr-latest        # OCR + seal detection
-export FILECRYSTAL_TEXT_MODEL=qwen-plus                   # structure stage
+export FILECRYSTAL_TEXT_MODEL=qwen3.6-plus                # structure stage
 export FILECRYSTAL_VISION_MODEL_THINKING=false            # Qwen3 reasoning for OCR
 export FILECRYSTAL_TEXT_MODEL_THINKING=false              # Qwen3 reasoning for structure
 ```
@@ -60,7 +60,13 @@ export FILECRYSTAL_TEXT_MODEL_THINKING=false              # Qwen3 reasoning for 
 ## Quick start (library)
 
 ```ts
-import { createFileParser, createStructuredExtractor, parseMany, toMarkdown } from 'filecrystal';
+import {
+  createFileParser,
+  createStructuredExtractor,
+  parseMany,
+  toMarkdown,
+  toStructureSource,
+} from 'filecrystal';
 
 // --- Mock mode — works offline, deterministic placeholders ---
 const parser = createFileParser({ mode: 'mock' });
@@ -73,22 +79,25 @@ const apiParser = createFileParser({
   openai: {
     baseUrl: process.env.FILECRYSTAL_MODEL_BASE_URL!,
     apiKey: process.env.FILECRYSTAL_MODEL_API_KEY!,
-    models: { ocr: 'qwen-vl-ocr-latest', vision: 'qwen-vl-max', text: 'qwen-plus' },
+    models: { ocr: 'qwen-vl-ocr-latest', vision: 'qwen-vl-max', text: 'qwen3.6-plus' },
   },
 });
 
 // --- Batch: many files concurrently ---
 const batch = await parseMany(apiParser, ['./a.pdf', './b.xlsx'], { concurrency: 3 });
 
-// --- Structured extraction: pass the prompt's JSON shape through verbatim ---
+// --- Structured extraction: every source becomes Markdown text first,
+//     then one prompt bundles them in argv order (single LLM call by default). ---
 const extractor = createStructuredExtractor({
   mode: 'api',
   openai: { /* same as above */ },
 });
-const { extracted } = await extractor.extract(
-  batch.items.filter((i) => i.ok).map((i) => ({ name: i.result!.source.fileName, raw: i.result!.raw })),
-  { prompt: customPromptMarkdown /* optional */ },
-);
+const sources = batch.items
+  .filter((i) => i.ok && i.result)
+  .map((i) => toStructureSource(i.result!));  // → { name, text } per source
+const { extracted } = await extractor.extract(sources, {
+  prompt: customPromptMarkdown /* optional */,
+});
 ```
 
 ## Supported formats

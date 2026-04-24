@@ -8,6 +8,7 @@ export interface ModelPricing {
 
 export const MODEL_PRICING: Record<string, ModelPricing> = {
   'qwen-plus': { provider: 'dashscope', currency: 'CNY', promptPerKTokens: 0.0008, completionPerKTokens: 0.002 },
+  'qwen3.6-plus': { provider: 'dashscope', currency: 'CNY', promptPerKTokens: 0.0008, completionPerKTokens: 0.002 },
   'qwen-turbo': { provider: 'dashscope', currency: 'CNY', promptPerKTokens: 0.0003, completionPerKTokens: 0.0006 },
   'qwen-vl-max': { provider: 'dashscope', currency: 'CNY', promptPerKTokens: 0.02, completionPerKTokens: 0.02, imagePerKTokens: 0.02 },
   'qwen-vl-ocr-latest': { provider: 'dashscope', currency: 'CNY', promptPerKTokens: 0.005, completionPerKTokens: 0.005, imagePerKTokens: 0.005 },

@@ -11,7 +11,7 @@
  *
  * Optional env:
  *   FILECRYSTAL_VISION_MODEL     default: qwen-vl-ocr-latest
- *   FILECRYSTAL_TEXT_MODEL       default: qwen-plus
+ *   FILECRYSTAL_TEXT_MODEL       default: qwen3.6-plus
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
@@ -45,7 +45,7 @@ const config = {
     models: {
       ocr: process.env.FILECRYSTAL_VISION_MODEL ?? 'qwen-vl-ocr-latest',
       vision: process.env.FILECRYSTAL_VISION_MODEL ?? 'qwen-vl-max',
-      text: process.env.FILECRYSTAL_TEXT_MODEL ?? 'qwen-plus',
+      text: process.env.FILECRYSTAL_TEXT_MODEL ?? 'qwen3.6-plus',
     },
   },
 };

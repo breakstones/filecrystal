@@ -25,6 +25,7 @@ import type { OcrBackend } from './ocr/backend.js';
 import { createOpenAICompatLlmBackend } from './llm/openai-compat.js';
 import { createOpenAICompatOcrBackend } from './ocr/openai-compat.js';
 import { parsePromptFile, buildUserPrompt } from './llm/prompt.js';
+import { toMarkdown } from './markdown.js';
 import { createFileCacheStore, type CacheStore } from './cache/store.js';
 import { buildCacheKey, fingerprintConfig } from './cache/key.js';
 import { FileParserError, ErrorCode } from './utils/errors.js';
@@ -47,15 +48,18 @@ class FileParserImpl implements FileParser {
       this.visionOcr = createMockOcrBackend();
       this.llm = createMockLlmBackend();
     } else {
-      const visionExtraBody = cfg.ocr.enableThinking ? { enable_thinking: true } : undefined;
-      const textExtraBody = cfg.extraction.enableThinking ? { enable_thinking: true } : undefined;
+      // We forward `enable_thinking` explicitly on every request so that
+      // qwen3 reasoning models — which default to `true` server-side — honour
+      // our "thinking off by default" contract instead of silently reasoning
+      // when the field is omitted.
+      const visionExtraBody = { enable_thinking: cfg.ocr.enableThinking };
       this.ocr = createOpenAICompatOcrBackend({
         baseUrl: cfg.openai.baseUrl,
         apiKey: cfg.openai.apiKey,
         model: cfg.openai.models.ocr,
         timeoutMs: cfg.ocr.timeoutMs,
         retries: cfg.ocr.retries,
-        ...(visionExtraBody ? { extraBody: visionExtraBody } : {}),
+        extraBody: visionExtraBody,
       });
       this.visionOcr = createOpenAICompatOcrBackend({
         baseUrl: cfg.openai.baseUrl,
@@ -63,14 +67,17 @@ class FileParserImpl implements FileParser {
         model: cfg.openai.models.vision,
         timeoutMs: cfg.ocr.timeoutMs,
         retries: cfg.ocr.retries,
-        ...(visionExtraBody ? { extraBody: visionExtraBody } : {}),
+        extraBody: visionExtraBody,
       });
+      // No backend-level extraBody for the text LLM — `enable_thinking` is
+      // computed and forwarded per-request inside the prompt-driven path
+      // (see below) so the prompt frontmatter can override the env default
+      // without round-tripping through the backend constructor.
       this.llm = createOpenAICompatLlmBackend({
         baseUrl: cfg.openai.baseUrl,
         apiKey: cfg.openai.apiKey,
         model: cfg.openai.models.text,
         timeoutMs: cfg.extraction.timeoutMs,
-        ...(textExtraBody ? { extraBody: textExtraBody } : {}),
       });
     }
     this.cache = createFileCacheStore(cfg.cacheDir);
@@ -181,16 +188,17 @@ class FileParserImpl implements FileParser {
     if (options.prompt) {
       const llmStart = Date.now();
       const parsed = parsePromptFile(options.prompt);
-      const userPrompt = buildUserPrompt(parsed.body, raw);
-      const perPromptExtraBody =
-        parsed.frontmatter.thinking !== undefined
-          ? { enable_thinking: parsed.frontmatter.thinking }
-          : undefined;
+      const userPrompt = buildUserPrompt(parsed.body, toMarkdown({ raw }));
+      // Resolve `enable_thinking` per-request: prompt frontmatter wins when
+      // set, otherwise the env-level default. Always forward the boolean —
+      // qwen3 models default to `true` server-side when the field is
+      // omitted, which would silently break "thinking off by default".
+      const enableThinking = parsed.frontmatter.thinking ?? this.cfg.extraction.enableThinking;
       const llmResult = await this.llm.extract({
         systemPrompt: parsed.body,
         userPrompt,
         ...(parsed.frontmatter.model ? { model: parsed.frontmatter.model } : {}),
-        ...(perPromptExtraBody ? { extraBody: perPromptExtraBody } : {}),
+        extraBody: { enable_thinking: enableThinking },
         temperature: parsed.frontmatter.temperature ?? this.cfg.extraction.defaultTemperature,
       });
       // Pass the prompt's JSON shape through verbatim; the caller owns the schema.

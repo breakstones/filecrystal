@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { parsePromptFile, buildUserPrompt } from '../../src/llm/prompt.js';
-import type { ParsedRaw } from '../../src/types.js';
 
 describe('parsePromptFile', () => {
   it('parses frontmatter and body', () => {
@@ -52,37 +51,20 @@ body`);
 });
 
 describe('buildUserPrompt', () => {
-  it('renders sheets with cell refs', () => {
-    const raw: ParsedRaw = {
-      sheets: [
-        {
-          sheetName: 'A',
-          cells: [
-            { ref: 'A1', value: 'hi' },
-            { ref: 'B2', value: 42 },
-          ],
-        },
-      ],
-    };
-    const prompt = buildUserPrompt('body', raw);
-    expect(prompt).toContain('A!A1: hi');
-    expect(prompt).toContain('A!B2: 42');
+  it('anchors the document body with 【文档原文】', () => {
+    const out = buildUserPrompt('body', 'raw dump');
+    expect(out).toContain('body');
+    expect(out).toContain('【文档原文】');
+    expect(out).toContain('raw dump');
+    // Anchor appears once, between body and text.
+    const anchorIdx = out.indexOf('【文档原文】');
+    expect(anchorIdx).toBeGreaterThan(out.indexOf('body'));
+    expect(anchorIdx).toBeLessThan(out.indexOf('raw dump'));
   });
 
-  it('renders pages and sections', () => {
-    const raw: ParsedRaw = {
-      pages: [{ pageNo: 1, text: 'page-text' }],
-      sections: [{ sectionId: 'p-1', text: 'sec-text' }],
-    };
-    const out = buildUserPrompt('body', raw);
-    expect(out).toContain('Page 1');
-    expect(out).toContain('page-text');
-    expect(out).toContain('p-1');
-    expect(out).toContain('sec-text');
-  });
-
-  it('falls back to fullText when no structure present', () => {
-    const raw: ParsedRaw = { fullText: 'raw dump' };
-    expect(buildUserPrompt('body', raw)).toContain('raw dump');
+  it('preserves the text content verbatim, including markdown', () => {
+    const text = '# File: a.md\n\nhello world\n\n---\n\n# File: b.md\n\nsecond';
+    const out = buildUserPrompt('prompt-body', text);
+    expect(out).toContain(text);
   });
 });

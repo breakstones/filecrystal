@@ -10,7 +10,7 @@
 #
 # Optional env:
 #   FILECRYSTAL_VISION_MODEL     OCR model (default: qwen-vl-ocr-latest)
-#   FILECRYSTAL_TEXT_MODEL       structure model (default: qwen-plus)
+#   FILECRYSTAL_TEXT_MODEL       structure model (default: qwen3.6-plus)
 
 set -euo pipefail
 

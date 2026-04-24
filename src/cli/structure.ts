@@ -1,14 +1,13 @@
 import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
-import { basename, extname } from 'node:path';
+import { basename } from 'node:path';
 import { createFileParser } from '../parser.js';
-import {
-  createStructuredExtractor,
-  toStructureSource,
-  type StructureSource,
-} from '../structure.js';
+import { parseMany, type ParseManyItem } from '../batch.js';
+import { toMarkdown } from '../markdown.js';
+import { classifyInputs } from '../utils/archive.js';
+import { createStructuredExtractor, type StructureSource } from '../structure.js';
 import { buildConfig, writeJson, type CommonOptions } from './shared.js';
-import type { ParseResult } from '../types.js';
+import type { ParseOptions } from '../types.js';
 
 interface StructureOpts extends CommonOptions {
   prompt?: string;
@@ -19,25 +18,29 @@ interface StructureOpts extends CommonOptions {
   detectSeals?: boolean;
 }
 
-function looksLikeParsedJson(path: string): boolean {
-  return extname(path).toLowerCase() === '.json';
+interface InputMeta {
+  path: string;
+  kind: 'parsed' | 'passthrough';
 }
 
-function looksLikeMarkdown(path: string): boolean {
-  const ext = extname(path).toLowerCase();
-  return ext === '.md' || ext === '.markdown' || ext === '.txt';
+interface ParseFailure {
+  path: string;
+  error: string;
+  code?: string;
 }
 
 export function registerStructureCommand(program: Command): void {
   program
     .command('structure')
     .description(
-      'Extract structured fields from parsed JSON or raw files. Auto-parses raw files first. ' +
-        'Combines multiple inputs into one LLM call; splits into batches when too large.',
+      'Extract structured fields from text and raw files. Text inputs (md/markdown/txt) ' +
+        'pass through; raw files (pdf/xlsx/docx/image/zip) are auto-extracted to Markdown first. ' +
+        'All inputs are concatenated in input order and sent to the LLM in a single call by default; ' +
+        'batching only triggers when --max-input-chars is set below the combined text length.',
     )
     .argument(
       '<inputs...>',
-      'one or more `.parsed.json` (from earlier extract runs that saved JSON) or raw file paths',
+      'one or more file paths: raw files (pdf/jpg/png/xlsx/xls/docx/doc), text files (md/markdown/txt), or zip archives',
     )
     .option(
       '--prompt <file>',
@@ -51,7 +54,7 @@ export function registerStructureCommand(program: Command): void {
     .option('--api-key <key>', 'OpenAI-compatible API key (env: FILECRYSTAL_MODEL_API_KEY)')
     .option(
       '--text-model <model>',
-      'text model. Examples: qwen-plus | qwen-max | qwen3-plus. Env: FILECRYSTAL_TEXT_MODEL. Default: qwen-plus',
+      'text model. Examples: qwen3.6-plus | qwen-plus | qwen-max | qwen3-plus. Env: FILECRYSTAL_TEXT_MODEL. Default: qwen3.6-plus',
     )
     .option(
       '--vision-model <model>',
@@ -59,11 +62,11 @@ export function registerStructureCommand(program: Command): void {
     )
     .option(
       '--max-input-chars <n>',
-      'split into batches when merged fullText exceeds this (default 80000)',
+      'force batch split when combined text exceeds this many characters (default 500000 — single LLM call covers most inputs)',
     )
-    .option('--concurrency <n>', 'parallel raw parses when raw files are given', '3')
-    .option('--full-pages', 'when parsing raw files first, disable truncation')
-    .option('--no-detect-seals', 'when parsing raw files first, skip seal/signature detection')
+    .option('--concurrency <n>', 'parallel raw-file extractions when raw files are given', '3')
+    .option('--full-pages', 'when extracting raw files first, disable truncation')
+    .option('--no-detect-seals', 'when extracting raw files first, skip seal/signature detection')
     .action(async (inputs: string[], opts: StructureOpts) => {
       if (opts.prompt && opts.promptText) {
         throw new Error('--prompt and --prompt-text are mutually exclusive');
@@ -75,40 +78,60 @@ export function registerStructureCommand(program: Command): void {
           : undefined;
 
       const cfg = buildConfig(opts);
+      const classified = await classifyInputs(inputs);
+
       const parser = createFileParser(cfg);
-      const parseOptions: Parameters<typeof parser.parse>[1] = {};
+      const parseOptions: ParseOptions = {};
       if (opts.fullPages) parseOptions.fullPages = true;
       if (opts.detectSeals === false) parseOptions.detectSeals = false;
 
-      const sources: StructureSource[] = [];
-      const inputsMeta: Array<{ path: string; kind: 'parsed-json' | 'markdown' | 'raw-file' }> = [];
+      const concurrency = opts.concurrency ? Math.max(1, Number(opts.concurrency) || 1) : 3;
 
-      for (const input of inputs) {
-        if (looksLikeParsedJson(input)) {
-          try {
-            const body = await readFile(input, 'utf8');
-            const parsed = JSON.parse(body) as ParseResult;
-            if (parsed?.raw && parsed?.source) {
-              sources.push(toStructureSource(parsed));
-              inputsMeta.push({ path: input, kind: 'parsed-json' });
-              continue;
-            }
-          } catch {
-            // fall through — treat as raw file
-          }
+      const batch =
+        classified.parseInputs.length > 0
+          ? await parseMany(parser, classified.parseInputs, {
+              concurrency,
+              parse: parseOptions,
+            })
+          : { items: [] as ParseManyItem[] };
+
+      const textByPath = new Map<string, string>();
+      const parseFailures: ParseFailure[] = [];
+      for (const item of batch.items) {
+        if (item.ok && item.result) {
+          textByPath.set(item.path, toMarkdown(item.result));
+        } else {
+          const failure: ParseFailure = {
+            path: item.path,
+            error: item.error ?? 'parse failed',
+          };
+          if (item.code) failure.code = item.code;
+          parseFailures.push(failure);
         }
-        if (looksLikeMarkdown(input)) {
-          // Treat .md / .markdown / .txt as a pre-extracted document: wrap
-          // the file contents as ParsedRaw.fullText so the LLM sees the same
-          // body the prompt author would see from the `extract` command.
-          const body = await readFile(input, 'utf8');
-          sources.push({ name: basename(input), raw: { fullText: body } });
-          inputsMeta.push({ path: input, kind: 'markdown' });
+      }
+      for (const p of classified.passthroughInputs) {
+        textByPath.set(p, await readFile(p, 'utf8'));
+      }
+
+      const sources: StructureSource[] = [];
+      const inputsMeta: InputMeta[] = [];
+      for (const slot of classified.slots) {
+        if (slot.kind === 'archive-failed') {
+          const failure: ParseFailure = {
+            path: slot.path,
+            error: slot.error ?? 'archive expansion failed',
+          };
+          if (slot.code) failure.code = slot.code;
+          parseFailures.push(failure);
           continue;
         }
-        const result = await parser.parse(input, parseOptions);
-        sources.push(toStructureSource(result));
-        inputsMeta.push({ path: input, kind: 'raw-file' });
+        const text = textByPath.get(slot.path);
+        if (text === undefined) continue;
+        sources.push({ name: basename(slot.path), text });
+        inputsMeta.push({
+          path: slot.path,
+          kind: slot.kind === 'passthrough' ? 'passthrough' : 'parsed',
+        });
       }
 
       const extractor = createStructuredExtractor(cfg);
@@ -118,7 +141,7 @@ export function registerStructureCommand(program: Command): void {
 
       const result = await extractor.extract(sources, structureOpts);
 
-      writeJson({
+      const summary: Record<string, unknown> = {
         inputs: inputsMeta,
         promptName: result.promptName ?? (promptContent ? 'custom' : 'default-structure'),
         batches: result.batches,
@@ -126,6 +149,12 @@ export function registerStructureCommand(program: Command): void {
         tokenUsage: result.tokenUsage,
         warnings: result.warnings,
         extracted: result.extracted,
-      });
+      };
+      if (classified.archives.length > 0) summary.archives = classified.archives;
+      if (parseFailures.length > 0) summary.parseFailures = parseFailures;
+
+      writeJson(summary);
+
+      if (parseFailures.length > 0) process.exitCode = 3;
     });
 }

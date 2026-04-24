@@ -41,7 +41,7 @@ describe('resolveConfig', () => {
     expect(cfg.openai?.baseUrl).toBe('https://example.com/v1');
     expect(cfg.openai?.apiKey).toBe('sk-new');
     expect(cfg.openai?.models.ocr).toBe('qwen-vl-ocr-latest');
-    expect(cfg.openai?.models.text).toBe('qwen-plus');
+    expect(cfg.openai?.models.text).toBe('qwen3.6-plus');
   });
 
   it('FILECRYSTAL_VISION_MODEL drives both ocr and vision slots', () => {

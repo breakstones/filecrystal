@@ -125,7 +125,7 @@ export function resolveConfig(input: FileParserConfig): ResolvedConfig {
         // envVision applies to both slots (single unified model).
         ocr: rawOpenai.models.ocr ?? envVision ?? 'qwen-vl-ocr-latest',
         vision: rawOpenai.models.vision ?? envVision ?? 'qwen-vl-max',
-        text: rawOpenai.models.text ?? envText ?? 'qwen-plus',
+        text: rawOpenai.models.text ?? envText ?? 'qwen3.6-plus',
       },
     };
   }

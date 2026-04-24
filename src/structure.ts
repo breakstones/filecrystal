@@ -1,37 +1,35 @@
-import type {
-  FileParserConfig,
-  ParsedRaw,
-  ParsedRawPage,
-  ParsedRawSection,
-  ParsedRawSheet,
-  ParseResult,
-} from './types.js';
+import type { FileParserConfig, ParsedRaw, ParseResult } from './types.js';
 import { resolveConfig } from './config.js';
 import type { LlmBackend } from './llm/backend.js';
 import { createOpenAICompatLlmBackend } from './llm/openai-compat.js';
 import { createMockLlmBackend } from './mocks/llm.js';
 import { parsePromptFile, buildUserPrompt } from './llm/prompt.js';
 import { DEFAULT_STRUCTURE_PROMPT } from './prompts/default-structure.js';
+import { toMarkdown } from './markdown.js';
 
 /**
  * A single document payload fed to {@link StructuredExtractor.extract}.
- * Either pass a {@link ParsedRaw} directly, or a full {@link ParseResult}
- * (only its `source.fileName` and `raw` are used).
+ * `name` is used to prefix the text with `# File: <name>` inside the user
+ * prompt so the model can attribute fields back to their source. `text` is
+ * already-formatted Markdown — the structure stage never inspects its
+ * internal shape.
  */
 export interface StructureSource {
-  name?: string;
-  raw: ParsedRaw;
+  name: string;
+  text: string;
 }
 
 export interface StructureOptions {
   /** Markdown + frontmatter prompt content. Omit to use the built-in default. */
   prompt?: string;
   /**
-   * Soft cap on combined `fullText` characters per LLM call.
-   * When the full batch would exceed it, sources are split across multiple
-   * calls and the per-field results are merged (later batch overrides if
-   * both contain the same top-level key).
-   * Default: 80_000.
+   * Soft cap on combined text characters per LLM call. When the combined
+   * input exceeds this value, sources are split across multiple LLM calls
+   * and their per-field results are shallow-merged (later batch overrides
+   * if both contain the same top-level key).
+   *
+   * Default: 500_000 — high enough that typical multi-document inputs fit
+   * in a single call; explicit smaller values opt in to batching.
    */
   maxInputChars?: number;
   signal?: AbortSignal;
@@ -67,20 +65,31 @@ export interface StructuredExtractor {
   extract(sources: StructureSource[], options?: StructureOptions): Promise<StructureResult>;
 }
 
-const DEFAULT_MAX_CHARS = 80_000;
+/**
+ * Optional constructor overrides — primarily for unit tests that want to
+ * intercept the LLM request without running the full mock/api code path.
+ */
+export interface StructuredExtractorOverrides {
+  llm?: LlmBackend;
+}
 
-export function createStructuredExtractor(config: FileParserConfig): StructuredExtractor {
+const DEFAULT_MAX_CHARS = 500_000;
+
+export function createStructuredExtractor(
+  config: FileParserConfig,
+  overrides: StructuredExtractorOverrides = {},
+): StructuredExtractor {
   const cfg = resolveConfig(config);
   const llm: LlmBackend =
-    cfg.mode === 'mock' || !cfg.openai
+    overrides.llm ??
+    (cfg.mode === 'mock' || !cfg.openai
       ? createMockLlmBackend()
       : createOpenAICompatLlmBackend({
           baseUrl: cfg.openai.baseUrl,
           apiKey: cfg.openai.apiKey,
           model: cfg.openai.models.text,
           timeoutMs: cfg.extraction.timeoutMs,
-          ...(cfg.extraction.enableThinking ? { extraBody: { enable_thinking: true } } : {}),
-        });
+        }));
 
   return {
     async extract(sources: StructureSource[], opts: StructureOptions = {}) {
@@ -91,28 +100,24 @@ export function createStructuredExtractor(config: FileParserConfig): StructuredE
       const batches = packIntoBatches(sources, maxChars);
       const warnings: string[] = [];
 
-      // Run all batches in parallel — they're independent; final merge is
-      // just an Object.assign on top-level keys, so order within an input
-      // segment doesn't matter as long as we preserve input order across
-      // batches (which we do by mapping over `batches` indices).
-      // Prompt-level `thinking` opts a single prompt into / out of
-      // provider reasoning (e.g. Qwen3 `enable_thinking`), overriding the
-      // env-level default.
-      const perPromptExtraBody =
-        frontmatter.thinking !== undefined
-          ? { enable_thinking: frontmatter.thinking }
-          : undefined;
+      // Resolve `enable_thinking` explicitly on every request: prompt
+      // frontmatter wins when set, otherwise the env-level default
+      // (`cfg.extraction.enableThinking`, false unless opted in). We always
+      // forward the boolean — silently omitting the field would make qwen3
+      // models fall back to their server-side default of `true`, which
+      // would break our "thinking off by default" contract.
+      const enableThinking = frontmatter.thinking ?? cfg.extraction.enableThinking;
 
       const perBatch = await Promise.all(
         batches.map(async (batch) => {
-          const mergedRaw = mergeRawBatch(batch);
-          const userPrompt = buildUserPrompt(body, mergedRaw);
+          const joined = joinSources(batch);
+          const userPrompt = buildUserPrompt(body, joined);
           const chars = userPrompt.length;
           const res = await llm.extract({
             systemPrompt: body,
             userPrompt,
             ...(frontmatter.model ? { model: frontmatter.model } : {}),
-            ...(perPromptExtraBody ? { extraBody: perPromptExtraBody } : {}),
+            extraBody: { enable_thinking: enableThinking },
             temperature: frontmatter.temperature ?? cfg.extraction.defaultTemperature,
           });
           return { batch, chars, res };
@@ -141,7 +146,8 @@ export function createStructuredExtractor(config: FileParserConfig): StructuredE
 
         // Shallow merge: later batch overrides earlier for same top-level key.
         // The prompt author is expected to handle multi-source semantics
-        // themselves (the merged raw carries `【<name>】` tags per source).
+        // themselves (the joined text carries `# File: <name>` headings per
+        // source).
         for (const [k, v] of Object.entries(res.fields)) {
           merged[k] = v;
         }
@@ -168,17 +174,21 @@ export function createStructuredExtractor(config: FileParserConfig): StructuredE
 }
 
 /**
- * Convenience: convert any {@link ParseResult} into a {@link StructureSource}.
+ * Convenience: convert any {@link ParseResult} into a {@link StructureSource}
+ * by rendering its raw data through {@link toMarkdown}. The structure stage
+ * never sees `ParsedRaw` directly; every input becomes Markdown text first.
  */
 export function toStructureSource(
   result: ParseResult | { raw: ParsedRaw; name?: string },
 ): StructureSource {
   if ('source' in result) {
-    return { name: result.source.fileName, raw: result.raw };
+    return { name: result.source.fileName, text: toMarkdown(result) };
   }
-  const source: StructureSource = { raw: result.raw };
-  if (result.name !== undefined) source.name = result.name;
-  return source;
+  return { name: result.name ?? 'document', text: toMarkdown({ raw: result.raw }) };
+}
+
+function joinSources(batch: StructureSource[]): string {
+  return batch.map((s) => `# File: ${s.name}\n\n${s.text}`).join('\n\n---\n\n');
 }
 
 function packIntoBatches(sources: StructureSource[], maxChars: number): StructureSource[][] {
@@ -188,7 +198,7 @@ function packIntoBatches(sources: StructureSource[], maxChars: number): Structur
   let currentChars = 0;
 
   for (const s of sources) {
-    const len = approxChars(s.raw);
+    const len = s.text.length;
     if (currentChars + len > maxChars && current.length > 0) {
       batches.push(current);
       current = [];
@@ -199,47 +209,4 @@ function packIntoBatches(sources: StructureSource[], maxChars: number): Structur
   }
   if (current.length > 0) batches.push(current);
   return batches;
-}
-
-function approxChars(raw: ParsedRaw): number {
-  if (raw.fullText) return raw.fullText.length;
-  const sheetChars = (raw.sheets ?? []).reduce(
-    (s, sh) => s + sh.cells.reduce((c, cell) => c + String(cell.value ?? '').length + 10, 0),
-    0,
-  );
-  const pageChars = (raw.pages ?? []).reduce((s, p) => s + (p.text?.length ?? 0), 0);
-  const sectionChars = (raw.sections ?? []).reduce((s, sec) => s + (sec.text?.length ?? 0), 0);
-  return sheetChars + pageChars + sectionChars;
-}
-
-function mergeRawBatch(batch: StructureSource[]): ParsedRaw {
-  if (batch.length === 1) return batch[0]!.raw;
-
-  const pages: ParsedRawPage[] = [];
-  const sheets: ParsedRawSheet[] = [];
-  const sections: ParsedRawSection[] = [];
-  const textChunks: string[] = [];
-
-  for (const src of batch) {
-    const tag = src.name ? `【${src.name}】` : '【document】';
-    if (src.raw.pages) pages.push(...src.raw.pages);
-    if (src.raw.sheets) {
-      for (const sh of src.raw.sheets) {
-        sheets.push(src.name ? { ...sh, sheetName: `${src.name}::${sh.sheetName}` } : sh);
-      }
-    }
-    if (src.raw.sections) {
-      for (const sec of src.raw.sections) {
-        sections.push(src.name ? { ...sec, sectionId: `${src.name}::${sec.sectionId}` } : sec);
-      }
-    }
-    if (src.raw.fullText) textChunks.push(`${tag}\n${src.raw.fullText}`);
-  }
-
-  const merged: ParsedRaw = {};
-  if (pages.length > 0) merged.pages = pages;
-  if (sheets.length > 0) merged.sheets = sheets;
-  if (sections.length > 0) merged.sections = sections;
-  if (textChunks.length > 0) merged.fullText = textChunks.join('\n\n');
-  return merged;
 }

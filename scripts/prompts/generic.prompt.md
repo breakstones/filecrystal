@@ -1,6 +1,6 @@
 ---
 name: generic
-model: qwen-plus
+model: qwen3.6-plus
 temperature: 0.1
 ---
 

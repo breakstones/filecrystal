@@ -11,7 +11,7 @@
  *                                    (default: https://dashscope.aliyuncs.com/compatible-mode/v1)
  * Optional env:
  *   FILECRYSTAL_VISION_MODEL   — unified OCR + vision model (default: qwen-vl-ocr-latest)
- *   FILECRYSTAL_TEXT_MODEL     — text/structure model (default: qwen-plus)
+ *   FILECRYSTAL_TEXT_MODEL     — text/structure model (default: qwen3.6-plus)
  *   FILECRYSTAL_MODE           — 'api' (default) or 'mock' for offline dry runs
  *
  * Usage:
@@ -68,7 +68,7 @@ const parserConfig =
           models: {
             ocr: process.env.FILECRYSTAL_VISION_MODEL ?? 'qwen-vl-ocr-latest',
             vision: process.env.FILECRYSTAL_VISION_MODEL ?? 'qwen-vl-max',
-            text: process.env.FILECRYSTAL_TEXT_MODEL ?? 'qwen-plus',
+            text: process.env.FILECRYSTAL_TEXT_MODEL ?? 'qwen3.6-plus',
           },
         },
         ocr: { maxConcurrency: 3, timeoutMs: 120_000, retries: 2 },

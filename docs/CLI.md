@@ -51,7 +51,7 @@ npx filecrystal <command> ...         # 发布后
 | 变量 | 作用 | 默认 |
 |---|---|---|
 | `FILECRYSTAL_VISION_MODEL` | OCR + 印章签名识别统一 vision 模型 | `qwen-vl-ocr-latest` |
-| `FILECRYSTAL_TEXT_MODEL` | `structure` 阶段的文本模型 | `qwen-plus` |
+| `FILECRYSTAL_TEXT_MODEL` | `structure` 阶段的文本模型 | `qwen3.6-plus` |
 
 **思考模式**(独立控制,默认全部关闭):
 
@@ -234,6 +234,8 @@ FILECRYSTAL_VISION_MODEL=qwen-vl-plus \
 ## 2. `structure`
 
 > **用 LLM prompt 从文档中抽字段**。`extracted` 字段 **直接遵循 prompt 要求的 JSON 结构**(原样透传);无法解析成 JSON 时自动降级为 `{ "text": "..." }`。
+>
+> **工作模型**:structure **不再自己调 `parser.parse`**。所有输入先变成 Markdown 文本——文本文件直通,原始文件内部走 `extract` 管线,`.zip` 透明展开——然后按**用户输入顺序**拼成一个 prompt 送 LLM。默认**单次 LLM 调用**,仅当合并后文本超过 `--max-input-chars`(默认 `500_000`)时才分批→浅合并。
 
 ### 2.1 用法
 
@@ -245,7 +247,7 @@ filecrystal structure <inputs...> [options]
 
 | 参数 | 说明 |
 |---|---|
-| `<inputs...>` | 一个或多个路径:`.md` / `.markdown` / `.txt`(extract 产物)或原始文件(pdf/xlsx/... 自动先 extract 再抽)或 `.json`(传统 `.parsed.json`)。可混用。 |
+| `<inputs...>` | 一个或多个路径:`.md` / `.markdown` / `.txt`(extract 产物,直通不解析)或原始文件(pdf/xlsx/docx/... 自动先走 extract 转成 Markdown)或 `.zip`(展开到同名子目录再按上述两类处理)。可混用;按用户输入顺序拼接送 LLM。 |
 
 ### 2.3 选项
 
@@ -253,11 +255,11 @@ filecrystal structure <inputs...> [options]
 |---|---|---|
 | `--prompt <file>` | prompt 文件路径(Markdown + YAML frontmatter)。与 `--prompt-text` 互斥。 | 缺省使用内置默认 prompt |
 | `--prompt-text <string>` | 直接作为 prompt 内容的字符串(命令行内联)。与 `--prompt` 互斥。 | 同上 |
-| `--max-input-chars <n>` | 正整数。合并 fullText 超此值触发切批。 | `80000` |
+| `--max-input-chars <n>` | 正整数。合并后的文本超此值才触发切批 + 浅合并。默认不触发,整体单次 LLM 调用。 | `500000` |
 | `--concurrency <n>` | 正整数。传入原始文件时并发 extract 的文件数。 | `3` |
 | `--base-url <url>` | 任意 URL | env `FILECRYSTAL_MODEL_BASE_URL` |
 | `--api-key <key>` | 任意 API key | env `FILECRYSTAL_MODEL_API_KEY` |
-| `--text-model <model>` | `qwen-plus` / `qwen-max` / `qwen3-plus` / ... | `qwen-plus` |
+| `--text-model <model>` | `qwen3.6-plus` / `qwen-plus` / `qwen-max` / `qwen3-plus` / ... | `qwen3.6-plus` |
 | `--vision-model <model>` | `qwen-vl-ocr-latest` / `qwen-vl-plus` / ... | `qwen-vl-ocr-latest` |
 | `--full-pages` | 开关,仅在需要先 extract 原始文件时生效 | off |
 | `--no-detect-seals` | 开关,同上 | off |
@@ -267,7 +269,7 @@ filecrystal structure <inputs...> [options]
 ```json
 {
   "inputs": [
-    { "path": "docs/合同.md", "kind": "markdown" }
+    { "path": "docs/合同.md", "kind": "passthrough" }
   ],
   "promptName": "contract-document",
   "batches": [
@@ -287,9 +289,12 @@ filecrystal structure <inputs...> [options]
 ```
 
 其中 `inputs[i].kind` 取值:
-- `parsed-json`:输入是 `.parsed.json`
-- `markdown`:输入是 `.md` / `.markdown` / `.txt`
-- `raw-file`:输入是原始 pdf/xlsx/docx/... 自动先 extract
+- `passthrough`:输入是 `.md` / `.markdown` / `.txt`,内容直接读取
+- `parsed`:输入是原始 pdf/xlsx/docx/image/...,内部调用 extract 管线转成 Markdown 后再拼接
+
+额外字段:
+- `archives`:仅当输入含 `.zip` 时出现,与 `extract` 命令同构
+- `parseFailures`:仅当有原始文件解析失败或 zip 展开失败时出现;失败条目不会被送入 LLM,但进程 exit code = 3
 
 ### 2.5 `extracted` 的形态(最重要)
 
@@ -356,7 +361,7 @@ Markdown + YAML frontmatter:
 ````markdown
 ---
 name: account-certificate         # 可选,显示在 promptName
-model: qwen-plus                  # 可选,覆盖 --text-model
+model: qwen3.6-plus               # 可选,覆盖 --text-model
 temperature: 0.1                  # 可选,默认 0.1
 thinking: true                    # 可选,覆盖 FILECRYSTAL_TEXT_MODEL_THINKING
 ---
@@ -381,7 +386,7 @@ thinking: true                    # 可选,覆盖 FILECRYSTAL_TEXT_MODEL_THINKIN
 
 | 字段 | 来源优先级(高 → 低) |
 |---|---|
-| `model` | `frontmatter.model` > `--text-model` > env `FILECRYSTAL_TEXT_MODEL` > 默认 `qwen-plus` |
+| `model` | `frontmatter.model` > `--text-model` > env `FILECRYSTAL_TEXT_MODEL` > 默认 `qwen3.6-plus` |
 | `temperature` | `frontmatter.temperature` > 配置 `extraction.defaultTemperature` > 默认 `0.1` |
 | `thinking` | `frontmatter.thinking` > env `FILECRYSTAL_TEXT_MODEL_THINKING` > 默认 `false` |
 
@@ -460,7 +465,7 @@ node dist/cli.js structure docs/合同.pdf \
 | `ocr.retries` | `2` | 单次失败后最多重试次数 |
 | `ocr.imageMaxLongEdge` | `2000` | `sharp` 缩放长边上限(px) |
 | `ocr.speculativeAfterMs` | `8000` | hedged-fetch 第二次请求的触发延迟 |
-| `structure.maxInputChars` | `80000` | 合并 fullText 超此值触发切批 |
+| `structure.maxInputChars` | `500000` | 合并后文本超此值才触发切批 + 浅合并;默认走单次 LLM 调用 |
 | `truncation.maxPages` | `10` | PDF 保留前 N + 后 M 页 |
 | `truncation.headTailRatio` | `[7, 3]` | 头尾比例 |
 | `truncation.docxMaxChars` | `5000` | docx 正文截断 |

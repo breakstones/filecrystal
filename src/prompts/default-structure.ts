@@ -2,7 +2,7 @@
 // `--prompt`. Inlined as a string so the compiled dist needs no extra asset.
 export const DEFAULT_STRUCTURE_PROMPT = `---
 name: default-structure
-model: qwen-plus
+model: qwen3.6-plus
 temperature: 0.1
 ---
 
