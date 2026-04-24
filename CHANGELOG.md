@@ -1,5 +1,83 @@
 # filecrystal
 
+## 0.5.0
+
+### Minor Changes
+
+- b391aa3: `filecrystal structure` is now text-first and single-prompt by default.
+
+  The structure stage no longer calls `parser.parse` itself. Text inputs
+  (`.md` / `.markdown` / `.txt`) pass through unchanged; raw files
+  (pdf/xlsx/docx/image/zip) are routed through the existing `extract`
+  pipeline (`classifyInputs` → `parseMany` → `toMarkdown`) to produce
+  Markdown. All inputs are concatenated in argv order with `# File: <name>`
+  headings and `---` separators, then sent to the LLM in a **single call**
+  by default. Batching + shallow-merge only kicks in when the combined text
+  exceeds `--max-input-chars` (default raised from 80 000 to 500 000).
+
+  ### Breaking changes
+  - `StructureSource` is now `{ name: string; text: string }` (was
+    `{ name?: string; raw: ParsedRaw }`). Migrate existing SDK callers with
+    `{ name: r.source.fileName, text: toMarkdown(r) }`.
+  - `buildUserPrompt(body, raw: ParsedRaw)` → `buildUserPrompt(body, text: string)`.
+    The prompt body + `【文档原文】` anchor + joined text format is preserved;
+    only the input shape changed.
+  - CLI no longer accepts `.parsed.json` inputs. SDK users who persisted
+    those artefacts can rehydrate with `JSON.parse` → `toMarkdown` before
+    passing to the structure stage.
+  - Default `maxInputChars` raised from 80 000 to 500 000 — typical
+    multi-document inputs now fit in one LLM call. Pass
+    `--max-input-chars <n>` (CLI) or `maxInputChars` (SDK) to force
+    batching for very large inputs.
+  - Default `text` model changed from `qwen-plus` to `qwen3.6-plus`.
+    Both the CLI (`--text-model`) and the SDK
+    (`FileParserConfig.openai.models.text`) inherit the new default.
+    `qwen3.6-plus` is a Qwen3 reasoning-capable model; thinking stays
+    off by default because `enable_thinking: false` is now forwarded
+    explicitly on every request (see the companion patch changeset).
+    Set `FILECRYSTAL_TEXT_MODEL=qwen-plus` to keep the old behaviour.
+  - Summary JSON shape: `inputs[].kind` enum loses `'parsed-json'` /
+    `'markdown'` / `'raw-file'` in favour of `'parsed'` / `'passthrough'`.
+    The summary gains `archives` (when `.zip` inputs are given) and
+    `parseFailures` (when any raw file or archive fails). Process exit code
+    is `3` when `parseFailures` is non-empty, matching `extract`.
+
+  ### Non-breaking additions
+  - `createStructuredExtractor(config, overrides?)` takes an optional second
+    argument for injecting a custom `LlmBackend` — primarily useful for
+    tests that need to inspect the assembled user prompt.
+  - `createMockLlmBackend({ record: true })` now captures every request
+    it sees (`backend.requests` / `backend.lastRequest`) to support that
+    inspection.
+
+### Patch Changes
+
+- b391aa3: Fix: `enableThinking` is now honoured on every LLM/OCR request, not just
+  when opted in to `true`.
+
+  Previously the backend/request code would _omit_ the `enable_thinking`
+  field entirely when `cfg.*.enableThinking` was `false` (the default). For
+  Qwen3 reasoning models (e.g. `qwen3-plus`, `qwen3.6-plus`), DashScope
+  defaults the server-side behaviour to **thinking enabled** when the field
+  is absent, so the documented "thinking off by default" contract was
+  silently broken on those models — up to 8× higher latency and 10×+ more
+  completion tokens.
+
+  What changed:
+  - `src/structure.ts` and `src/parser.ts` now always forward
+    `extraBody.enable_thinking: <boolean>` on every LLM call, computing the
+    effective value as `frontmatter.thinking ?? cfg.extraction.enableThinking`.
+  - `src/parser.ts` OCR backends now always pass
+    `extraBody.enable_thinking: cfg.ocr.enableThinking` (was only forwarded
+    when `true`).
+  - No public API changes; `FileParserConfig.{ocr,extraction}.enableThinking`
+    keeps the same shape and default (`false`).
+
+  Live verification against `qwen3.6-plus`: default path drops from
+  ~9.9 s / 484 completion tokens (reasoning silently running) to
+  ~1.8 s / 36 completion tokens (reasoning actually off). Explicit
+  `frontmatter: thinking: true` still opts back in.
+
 ## 0.4.0
 
 ### Minor Changes
