@@ -1,5 +1,31 @@
 # filecrystal
 
+## 0.5.2
+
+### Patch Changes
+
+- Re-scope of the concurrency envs shipped in v0.6.0 as a patch, since they
+  are backward-compatible default tweaks (new env vars + slightly higher
+  pool ceilings) rather than new minor-level capabilities. Code is
+  functionally identical to v0.6.0; `latest` dist-tag moves from v0.6.0
+  back down to v0.5.2. v0.6.0 remains available for anyone who already
+  pinned it.
+
+  **`FILECRYSTAL_FILE_CONCURRENCY`** — CLI file-level parallelism for
+  `extract` and `structure` (when raw files are involved). Overridden by
+  the CLI `--concurrency` flag; otherwise the default is
+  `min(<files>, 20)`. Both commands now share this default:
+  - `extract --concurrency` default: `min(<files>, 10)` → **`min(<files>, 20)`**.
+  - `structure --concurrency` default: `3` → **`min(<raw files>, 20)`**.
+
+  **`FILECRYSTAL_OCR_CONCURRENCY`** — process-scoped OCR / vision
+  parallelism (every page from every file competes for this pool).
+  Overridden by `FileParserConfig.ocr.maxConcurrency`. Default raised
+  from **`18` → `24`**.
+
+  Invalid / non-positive env values are silently ignored, falling back
+  to the defaults so a stray `0` never aborts a batch.
+
 ## 0.6.0
 
 ### Minor Changes
