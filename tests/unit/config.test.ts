@@ -10,6 +10,7 @@ const ENV_KEYS = [
   'FILECRYSTAL_VISION_MODEL_THINKING',
   'FILECRYSTAL_TEXT_MODEL_THINKING',
   'FILECRYSTAL_CACHE_DIR',
+  'FILECRYSTAL_OCR_CONCURRENCY',
 ] as const;
 
 describe('resolveConfig', () => {
@@ -27,7 +28,27 @@ describe('resolveConfig', () => {
     const cfg = resolveConfig({ mode: 'mock' });
     expect(cfg.mode).toBe('mock');
     expect(cfg.openai).toBeUndefined();
-    expect(cfg.ocr.maxConcurrency).toBe(18);
+    expect(cfg.ocr.maxConcurrency).toBe(24);
+  });
+
+  it('FILECRYSTAL_OCR_CONCURRENCY overrides the default pool size', () => {
+    process.env.FILECRYSTAL_OCR_CONCURRENCY = '48';
+    const cfg = resolveConfig({ mode: 'mock' });
+    expect(cfg.ocr.maxConcurrency).toBe(48);
+  });
+
+  it('explicit config.ocr.maxConcurrency wins over FILECRYSTAL_OCR_CONCURRENCY', () => {
+    process.env.FILECRYSTAL_OCR_CONCURRENCY = '48';
+    const cfg = resolveConfig({ mode: 'mock', ocr: { maxConcurrency: 6 } });
+    expect(cfg.ocr.maxConcurrency).toBe(6);
+  });
+
+  it('ignores invalid FILECRYSTAL_OCR_CONCURRENCY values', () => {
+    for (const bad of ['0', '-1', 'abc', '']) {
+      process.env.FILECRYSTAL_OCR_CONCURRENCY = bad;
+      const cfg = resolveConfig({ mode: 'mock' });
+      expect(cfg.ocr.maxConcurrency).toBe(24);
+    }
   });
 
   it('throws when api mode lacks credentials', () => {

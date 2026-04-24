@@ -6,7 +6,7 @@ import { parseMany, type ParseManyItem } from '../batch.js';
 import { toMarkdown } from '../markdown.js';
 import { classifyInputs } from '../utils/archive.js';
 import { createStructuredExtractor, type StructureSource } from '../structure.js';
-import { buildConfig, writeJson, type CommonOptions } from './shared.js';
+import { buildConfig, resolveFileConcurrency, writeJson, type CommonOptions } from './shared.js';
 import type { ParseOptions } from '../types.js';
 
 interface StructureOpts extends CommonOptions {
@@ -64,7 +64,10 @@ export function registerStructureCommand(program: Command): void {
       '--max-input-chars <n>',
       'force batch split when combined text exceeds this many characters (default 500000 — single LLM call covers most inputs)',
     )
-    .option('--concurrency <n>', 'parallel raw-file extractions when raw files are given', '3')
+    .option(
+      '--concurrency <n>',
+      'parallel raw-file extractions when raw files are given. Env: FILECRYSTAL_FILE_CONCURRENCY. Default: min(<raw files>, 20).',
+    )
     .option('--full-pages', 'when extracting raw files first, disable truncation')
     .option('--no-detect-seals', 'when extracting raw files first, skip seal/signature detection')
     .action(async (inputs: string[], opts: StructureOpts) => {
@@ -85,7 +88,9 @@ export function registerStructureCommand(program: Command): void {
       if (opts.fullPages) parseOptions.fullPages = true;
       if (opts.detectSeals === false) parseOptions.detectSeals = false;
 
-      const concurrency = opts.concurrency ? Math.max(1, Number(opts.concurrency) || 1) : 3;
+      const concurrency = opts.concurrency
+        ? Math.max(1, Number(opts.concurrency) || 1)
+        : resolveFileConcurrency(classified.parseInputs.length);
 
       const batch =
         classified.parseInputs.length > 0

@@ -50,11 +50,15 @@ Full option reference: [`docs/CLI.md`](./docs/CLI.md).
 export FILECRYSTAL_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 export FILECRYSTAL_MODEL_API_KEY=sk-your-key-here
 
-# Optional overrides
+# Optional model overrides
 export FILECRYSTAL_VISION_MODEL=qwen-vl-ocr-latest        # OCR + seal detection
 export FILECRYSTAL_TEXT_MODEL=qwen3.6-plus                # structure stage
 export FILECRYSTAL_VISION_MODEL_THINKING=false            # Qwen3 reasoning for OCR
 export FILECRYSTAL_TEXT_MODEL_THINKING=false              # Qwen3 reasoning for structure
+
+# Optional concurrency tuning
+export FILECRYSTAL_FILE_CONCURRENCY=20   # CLI file-level parallelism (extract + structure)
+export FILECRYSTAL_OCR_CONCURRENCY=24    # process-wide OCR / vision pool; lower if rate-limited
 ```
 
 ## Quick start (library)

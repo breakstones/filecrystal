@@ -9,6 +9,34 @@ export interface CommonOptions {
 }
 
 /**
+ * Hard ceiling for the file-level parallelism of `extract` / `structure` when
+ * neither `--concurrency` nor `FILECRYSTAL_FILE_CONCURRENCY` is set. Paired
+ * with `min(fileCount, DEFAULT_FILE_CONCURRENCY)` so small batches don't
+ * allocate idle scheduling slots.
+ */
+export const DEFAULT_FILE_CONCURRENCY = 20;
+
+function envPositiveInt(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/**
+ * Resolve the CLI default for file-level concurrency.
+ *   1. `FILECRYSTAL_FILE_CONCURRENCY` env overrides the built-in cap.
+ *   2. Result is still clamped by the actual number of files (1 when empty).
+ *
+ * Invalid / non-positive env values are ignored silently — we fall back to
+ * the code default rather than erroring out mid-batch.
+ */
+export function resolveFileConcurrency(fileCount: number): number {
+  const cap = envPositiveInt('FILECRYSTAL_FILE_CONCURRENCY') ?? DEFAULT_FILE_CONCURRENCY;
+  return Math.max(1, Math.min(fileCount || 1, cap));
+}
+
+/**
  * API-only config builder (no mock mode in CLI).
  * The single `--vision-model` flag drives both the OCR model and the
  * seal/signature vision model — the backend is the same.

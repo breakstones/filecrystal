@@ -62,6 +62,13 @@ npx filecrystal <command> ...         # 发布后
 
 > 思考模式会显著增加延迟和 token 消耗,对 OCR 类任务通常无益;仅在处理需要复杂推理的文本抽取时考虑开启 `FILECRYSTAL_TEXT_MODEL_THINKING`。
 
+**并发控制**(可选):
+
+| 变量 | 作用 | 默认 |
+|---|---|---|
+| `FILECRYSTAL_FILE_CONCURRENCY` | `extract` / `structure` 的**文件级并发**上限;同时最多几个文件走解析管线。被 CLI `--concurrency` 覆盖;传入文件数较少时自动取 `min(<files>, <env>)`。 | `20` |
+| `FILECRYSTAL_OCR_CONCURRENCY` | **OCR / vision 页级并发**(进程全局);跨所有文件共享此池,是 LLM 请求的实际入口。被 SDK `config.ocr.maxConcurrency` 覆盖。打到 DashScope 429 时往下调,有更高 quota 时往上调。 | `24` |
+
 **运行时**(非模型相关):
 
 | 变量 | 作用 | 默认 |
@@ -114,7 +121,7 @@ filecrystal extract <paths...> [options]
 | 选项 | 可选值 | 默认 |
 |---|---|---|
 | `--out <dir>` | 任意目录路径 | 每个输入文件的原目录(即 `a/b/x.pdf` → `a/b/x.md`) |
-| `--concurrency <n>` | 正整数 | `min(<输入文件数>, 10)` |
+| `--concurrency <n>` | 正整数 · env `FILECRYSTAL_FILE_CONCURRENCY` | `min(<输入文件数>, 20)` |
 | `--base-url <url>` | 任意 OpenAI-compatible base URL | env `FILECRYSTAL_MODEL_BASE_URL` |
 | `--api-key <key>` | 任意 API key | env `FILECRYSTAL_MODEL_API_KEY` |
 | `--vision-model <model>` | `qwen-vl-ocr-latest` / `qwen-vl-plus` / `qwen-vl-max` / `qwen3-vl-plus` / ... | `qwen-vl-ocr-latest` |
@@ -256,7 +263,7 @@ filecrystal structure <inputs...> [options]
 | `--prompt <file>` | prompt 文件路径(Markdown + YAML frontmatter)。与 `--prompt-text` 互斥。 | 缺省使用内置默认 prompt |
 | `--prompt-text <string>` | 直接作为 prompt 内容的字符串(命令行内联)。与 `--prompt` 互斥。 | 同上 |
 | `--max-input-chars <n>` | 正整数。合并后的文本超此值才触发切批 + 浅合并。默认不触发,整体单次 LLM 调用。 | `500000` |
-| `--concurrency <n>` | 正整数。传入原始文件时并发 extract 的文件数。 | `3` |
+| `--concurrency <n>` | 正整数。传入原始文件时并发 extract 的文件数。env `FILECRYSTAL_FILE_CONCURRENCY`。 | `min(<原始文件数>, 20)` |
 | `--base-url <url>` | 任意 URL | env `FILECRYSTAL_MODEL_BASE_URL` |
 | `--api-key <key>` | 任意 API key | env `FILECRYSTAL_MODEL_API_KEY` |
 | `--text-model <model>` | `qwen3.6-plus` / `qwen-plus` / `qwen-max` / `qwen3-plus` / ... | `qwen3.6-plus` |
@@ -459,8 +466,8 @@ node dist/cli.js structure docs/合同.pdf \
 
 | 位置 | 默认值 | 说明 |
 |---|---|---|
-| `extract --concurrency` | `min(files, 10)` | 文件级并发 |
-| `ocr.maxConcurrency` | `18` | 进程全局 OCR 并发 |
+| `extract --concurrency` / env `FILECRYSTAL_FILE_CONCURRENCY` | `min(files, 20)` | 文件级并发(extract 与 structure 共用一套默认) |
+| `ocr.maxConcurrency` / env `FILECRYSTAL_OCR_CONCURRENCY` | `24` | 进程全局 OCR / vision 并发(跨文件共享) |
 | `ocr.timeoutMs` | `45000` | 单次 OCR 请求超时 |
 | `ocr.retries` | `2` | 单次失败后最多重试次数 |
 | `ocr.imageMaxLongEdge` | `2000` | `sharp` 缩放长边上限(px) |

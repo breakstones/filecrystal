@@ -107,6 +107,15 @@ export function resolveConfig(input: FileParserConfig): ResolvedConfig {
   const env = process.env;
   const envBaseUrl = env.FILECRYSTAL_MODEL_BASE_URL;
   const envApiKey = env.FILECRYSTAL_MODEL_API_KEY;
+
+  // Read a positive integer from env; silently ignore missing / NaN /
+  // non-positive values so bad config never aborts a batch mid-flight.
+  const envPositiveInt = (name: string): number | undefined => {
+    const raw = env[name];
+    if (!raw) return undefined;
+    const n = Math.floor(Number(raw));
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
   // FILECRYSTAL_VISION_MODEL drives both the OCR model and the dedicated
   // vision model (seal/signature detection). If you need them split, pass
   // `openai.models` explicitly via FileParserConfig (library API).
@@ -144,10 +153,14 @@ export function resolveConfig(input: FileParserConfig): ResolvedConfig {
     parserVersion: cfg.parserVersion ?? (cfg.mode === 'mock' ? `mock-${VERSION}` : `api-${VERSION}`),
     openai,
     ocr: {
-      // Process-scoped OCR concurrency (see FileParserImpl.ocrLimiter). With
-      // T1 this is no longer per-file; we keep raising the default while
-      // relying on T6's jitter+Retry-After to ride out the rate limit if hit.
-      maxConcurrency: cfg.ocr?.maxConcurrency ?? 18,
+      // Process-scoped OCR concurrency (see FileParserImpl.ocrLimiter). This
+      // pool is shared across every page of every file flowing through one
+      // parser instance. Resolution order:
+      //   SDK `config.ocr.maxConcurrency`  >  env `FILECRYSTAL_OCR_CONCURRENCY`  >  default 24
+      // 24 targets the typical DashScope paid-tier concurrency cap; lower it
+      // via the env if you see 429s, raise it if you have a higher quota.
+      maxConcurrency:
+        cfg.ocr?.maxConcurrency ?? envPositiveInt('FILECRYSTAL_OCR_CONCURRENCY') ?? 24,
       // Latency budget per attempt. The hedged-fetch in the OCR backend
       // (see `speculativeAfterMs`) handles p95 tail by firing a second
       // request after 8 s; Promise.any returns whichever fulfils first.

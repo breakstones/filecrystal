@@ -5,7 +5,7 @@ import { createFileParser } from '../parser.js';
 import { parseMany, type ParseManyItem } from '../batch.js';
 import { toMarkdown } from '../markdown.js';
 import { classifyInputs, type InputSlot } from '../utils/archive.js';
-import { buildConfig, writeJson, type CommonOptions } from './shared.js';
+import { buildConfig, resolveFileConcurrency, writeJson, type CommonOptions } from './shared.js';
 
 interface ExtractOpts extends CommonOptions {
   out?: string;
@@ -43,7 +43,7 @@ export function registerExtractCommand(program: Command): void {
     )
     .option(
       '--concurrency <n>',
-      'parallel file parses. Default: min(<files>, 10) so small batches finish as fast as possible.',
+      'parallel file parses. Env: FILECRYSTAL_FILE_CONCURRENCY. Default: min(<files>, 20).',
     )
     .option('--base-url <url>', 'OpenAI-compatible base URL (env: FILECRYSTAL_MODEL_BASE_URL)')
     .option('--api-key <key>', 'OpenAI-compatible API key (env: FILECRYSTAL_MODEL_API_KEY)')
@@ -65,7 +65,7 @@ export function registerExtractCommand(program: Command): void {
 
       const concurrency = opts.concurrency
         ? Math.max(1, Number(opts.concurrency) || 1)
-        : Math.max(1, Math.min(classified.parseInputs.length || 1, 10));
+        : resolveFileConcurrency(classified.parseInputs.length);
 
       const batch =
         classified.parseInputs.length > 0
