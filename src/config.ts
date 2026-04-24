@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { FileParserError, ErrorCode } from './utils/errors.js';
 import type { FileParserConfig } from './types.js';
+import { VERSION } from './version.js';
 
 const openaiSchema = z.object({
   baseUrl: z.string().url(),
@@ -140,7 +141,7 @@ export function resolveConfig(input: FileParserConfig): ResolvedConfig {
   return {
     mode: cfg.mode,
     cacheDir: cfg.cacheDir ?? env.FILECRYSTAL_CACHE_DIR ?? join(tmpdir(), 'filecrystal-cache'),
-    parserVersion: cfg.parserVersion ?? (cfg.mode === 'mock' ? 'mock-0.1.0' : 'api-0.1.0'),
+    parserVersion: cfg.parserVersion ?? (cfg.mode === 'mock' ? `mock-${VERSION}` : `api-${VERSION}`),
     openai,
     ocr: {
       // Process-scoped OCR concurrency (see FileParserImpl.ocrLimiter). With

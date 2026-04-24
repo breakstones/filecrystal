@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { registerExtractCommand } from './cli/extract.js';
 import { registerStructureCommand } from './cli/structure.js';
+import { VERSION } from './version.js';
 
 const program = new Command();
 
@@ -10,7 +11,7 @@ program
     'Universal file parser for PDFs, images, xlsx/xls, docx. ' +
       'Two-step pipeline: `extract` (raw parse → Markdown) + `structure` (LLM field extraction).',
   )
-  .version('0.1.0');
+  .version(VERSION);
 
 registerExtractCommand(program);
 registerStructureCommand(program);
