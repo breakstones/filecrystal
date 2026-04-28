@@ -23,7 +23,7 @@ import { createMockOcrBackend } from './mocks/ocr.js';
 import type { LlmBackend } from './llm/backend.js';
 import type { OcrBackend } from './ocr/backend.js';
 import { createOpenAICompatLlmBackend } from './llm/openai-compat.js';
-import { createOpenAICompatOcrBackend } from './ocr/openai-compat.js';
+import { createOcrBackend } from './ocr/registry.js';
 import { parsePromptFile, buildUserPrompt } from './llm/prompt.js';
 import { toMarkdown } from './markdown.js';
 import { createFileCacheStore, type CacheStore } from './cache/store.js';
@@ -43,42 +43,27 @@ class FileParserImpl implements FileParser {
 
   constructor(cfg: ResolvedConfig) {
     this.cfg = cfg;
-    if (cfg.mode === 'mock' || !cfg.openai) {
+    if (cfg.mode === 'mock') {
       this.ocr = createMockOcrBackend();
       this.visionOcr = createMockOcrBackend();
       this.llm = createMockLlmBackend();
     } else {
-      // We forward `enable_thinking` explicitly on every request so that
-      // qwen3 reasoning models — which default to `true` server-side — honour
-      // our "thinking off by default" contract instead of silently reasoning
-      // when the field is omitted.
-      const visionExtraBody = { enable_thinking: cfg.ocr.enableThinking };
-      this.ocr = createOpenAICompatOcrBackend({
-        baseUrl: cfg.openai.baseUrl,
-        apiKey: cfg.openai.apiKey,
-        model: cfg.openai.models.ocr,
-        timeoutMs: cfg.ocr.timeoutMs,
-        retries: cfg.ocr.retries,
-        extraBody: visionExtraBody,
-      });
-      this.visionOcr = createOpenAICompatOcrBackend({
-        baseUrl: cfg.openai.baseUrl,
-        apiKey: cfg.openai.apiKey,
-        model: cfg.openai.models.vision,
-        timeoutMs: cfg.ocr.timeoutMs,
-        retries: cfg.ocr.retries,
-        extraBody: visionExtraBody,
-      });
-      // No backend-level extraBody for the text LLM — `enable_thinking` is
-      // computed and forwarded per-request inside the prompt-driven path
-      // (see below) so the prompt frontmatter can override the env default
-      // without round-tripping through the backend constructor.
-      this.llm = createOpenAICompatLlmBackend({
-        baseUrl: cfg.openai.baseUrl,
-        apiKey: cfg.openai.apiKey,
-        model: cfg.openai.models.text,
-        timeoutMs: cfg.extraction.timeoutMs,
-      });
+      this.ocr = createOcrBackend(cfg.ocr.primary, cfg.ocr);
+      this.visionOcr = createOcrBackend(cfg.ocr.vision, cfg.ocr);
+      if (cfg.openai?.apiKey) {
+        // No backend-level extraBody for the text LLM — `enable_thinking` is
+        // computed and forwarded per-request inside the prompt-driven path
+        // (see below) so the prompt frontmatter can override the env default
+        // without round-tripping through the backend constructor.
+        this.llm = createOpenAICompatLlmBackend({
+          baseUrl: cfg.openai.baseUrl,
+          apiKey: cfg.openai.apiKey,
+          model: cfg.openai.models.text,
+          timeoutMs: cfg.extraction.timeoutMs,
+        });
+      } else {
+        this.llm = createMockLlmBackend();
+      }
     }
     this.cache = createFileCacheStore(cfg.cacheDir);
     // Process-scoped OCR/vision limiter shared across every extractor call
@@ -89,9 +74,17 @@ class FileParserImpl implements FileParser {
     this.configFingerprint = fingerprintConfig({
       mode: cfg.mode,
       parserVersion: cfg.parserVersion,
-      ocrModel: cfg.openai?.models.ocr,
-      visionModel: cfg.openai?.models.vision,
+      ocrProvider: cfg.ocr.primary.provider,
+      ocrModel: cfg.ocr.primary.model,
+      ocrEndpoint: cfg.ocr.primary.aliyun?.endpoint,
+      ocrRegion: cfg.ocr.primary.aliyun?.regionId,
+      aliyunOutputTable: cfg.ocr.primary.aliyun?.outputTable,
+      aliyunRow: cfg.ocr.primary.aliyun?.row,
+      aliyunParagraph: cfg.ocr.primary.aliyun?.paragraph,
+      visionProvider: cfg.ocr.vision.provider,
+      visionModel: cfg.ocr.vision.model,
       textModel: cfg.openai?.models.text,
+      imageMaxLongEdge: cfg.ocr.imageMaxLongEdge,
       truncation: cfg.truncation,
       sealEnabled: cfg.seal.enabled,
     });

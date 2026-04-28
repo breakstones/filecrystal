@@ -11,6 +11,11 @@ const ENV_KEYS = [
   'FILECRYSTAL_TEXT_MODEL_THINKING',
   'FILECRYSTAL_CACHE_DIR',
   'FILECRYSTAL_OCR_CONCURRENCY',
+  'FILECRYSTAL_OCR_PROVIDER',
+  'FILECRYSTAL_ALIYUN_ACCESS_KEY_ID',
+  'FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET',
+  'FILECRYSTAL_ALIYUN_OCR_ENDPOINT',
+  'FILECRYSTAL_ALIYUN_OCR_REGION',
 ] as const;
 
 describe('resolveConfig', () => {
@@ -136,5 +141,66 @@ describe('resolveConfig', () => {
   it('rejects invalid config shape', () => {
     // @ts-expect-error intentional bad input
     expect(() => resolveConfig({ mode: 'nope' })).toThrow(FileParserError);
+  });
+
+  it('resolves aliyun-ocr provider from environment without requiring OpenAI credentials', () => {
+    process.env.FILECRYSTAL_OCR_PROVIDER = 'aliyun-ocr';
+    process.env.FILECRYSTAL_ALIYUN_ACCESS_KEY_ID = 'ak-id';
+    process.env.FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET = 'ak-secret';
+    process.env.FILECRYSTAL_ALIYUN_OCR_REGION = 'cn-hangzhou';
+    const cfg = resolveConfig({ mode: 'api' });
+    expect(cfg.ocr.provider).toBe('aliyun-ocr');
+    expect(cfg.ocr.primary.provider).toBe('aliyun-ocr');
+    expect(cfg.ocr.primary.model).toBe('RecognizeAdvanced');
+    expect(cfg.ocr.primary.aliyun?.accessKeyId).toBe('ak-id');
+    expect(cfg.ocr.primary.aliyun?.accessKeySecret).toBe('ak-secret');
+    expect(cfg.ocr.primary.aliyun?.regionId).toBe('cn-hangzhou');
+  });
+
+  it('enables Aliyun table output by default without row or paragraph structure', () => {
+    process.env.FILECRYSTAL_OCR_PROVIDER = 'aliyun-ocr';
+    process.env.FILECRYSTAL_ALIYUN_ACCESS_KEY_ID = 'ak-id';
+    process.env.FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET = 'ak-secret';
+    const cfg = resolveConfig({ mode: 'api' });
+    expect(cfg.ocr.primary.aliyun?.outputTable).toBe(true);
+    expect(cfg.ocr.primary.aliyun?.row).toBeUndefined();
+    expect(cfg.ocr.primary.aliyun?.paragraph).toBeUndefined();
+  });
+
+  it('explicit aliyun OCR config wins over environment', () => {
+    process.env.FILECRYSTAL_OCR_PROVIDER = 'aliyun-ocr';
+    process.env.FILECRYSTAL_ALIYUN_ACCESS_KEY_ID = 'env-id';
+    process.env.FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET = 'env-secret';
+    const cfg = resolveConfig({
+      mode: 'api',
+      ocr: {
+        provider: 'aliyun-ocr',
+        aliyun: {
+          accessKeyId: 'explicit-id',
+          accessKeySecret: 'explicit-secret',
+          endpoint: 'https://ocr.example.com',
+          outputTable: true,
+          row: true,
+          paragraph: true,
+        },
+      },
+    });
+    expect(cfg.ocr.primary.aliyun?.accessKeyId).toBe('explicit-id');
+    expect(cfg.ocr.primary.aliyun?.accessKeySecret).toBe('explicit-secret');
+    expect(cfg.ocr.primary.aliyun?.endpoint).toBe('ocr.example.com');
+    expect(cfg.ocr.primary.aliyun?.outputTable).toBe(true);
+    expect(cfg.ocr.primary.aliyun?.row).toBe(true);
+    expect(cfg.ocr.primary.aliyun?.paragraph).toBe(true);
+  });
+
+  it('aliyun-ocr requires credentials without leaking secret values', () => {
+    process.env.FILECRYSTAL_OCR_PROVIDER = 'aliyun-ocr';
+    process.env.FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET = 'super-secret-value';
+    expect(() => resolveConfig({ mode: 'api' })).toThrow(FileParserError);
+    try {
+      resolveConfig({ mode: 'api' });
+    } catch (err) {
+      expect(String((err as Error).message)).not.toContain('super-secret-value');
+    }
   });
 });

@@ -56,7 +56,7 @@ export async function extractDocx(
       ctx.metrics.incImagesProcessed();
       ctx.metrics.recordCall({
         model: res.model,
-        provider: 'openai-compat',
+        provider: res.provider ?? 'openai-compat',
         promptTokens: res.usage?.promptTokens ?? 0,
         completionTokens: res.usage?.completionTokens ?? 0,
         ms: res.ms,

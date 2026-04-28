@@ -180,6 +180,19 @@ export interface OpenAICompatEndpoint {
   model: string;
 }
 
+export type OcrProvider = 'openai-compat' | 'aliyun-ocr';
+
+export interface AliyunOcrConfig {
+  accessKeyId?: string;
+  accessKeySecret?: string;
+  endpoint?: string;
+  regionId?: string;
+  model?: 'RecognizeAdvanced';
+  outputTable?: boolean;
+  row?: boolean;
+  paragraph?: boolean;
+}
+
 export interface FileParserConfig {
   mode: 'mock' | 'api';
   cacheDir?: string;
@@ -198,6 +211,9 @@ export interface FileParserConfig {
     timeoutMs?: number;
     retries?: number;
     imageMaxLongEdge?: number;
+    enableThinking?: boolean;
+    provider?: OcrProvider;
+    aliyun?: AliyunOcrConfig;
   };
   extraction?: {
     defaultTemperature?: number;

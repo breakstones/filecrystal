@@ -13,6 +13,7 @@ tmp_data/
 # api-key.txt is just a developer-convenience scratch file)
 api-key.txt
 api-key
+aliyun-ocr-ak.txt
 *.api-key
 .env
 .env.local

@@ -16,7 +16,8 @@ extract  (files → Markdown)        structure  (Markdown → prompt-defined JSO
 
 ## Prerequisites
 
-Set API credentials once:
+Set API credentials once. The default path uses any OpenAI-compatible provider
+for OCR, seal detection, and structure-stage LLM calls:
 
 ```bash
 export FILECRYSTAL_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -25,6 +26,20 @@ export FILECRYSTAL_MODEL_API_KEY=sk-your-key-here
 
 Swap `baseUrl` + model names for OpenAI / Moonshot / DeepSeek / vLLM — no
 other code changes.
+
+For OCR-only Markdown extraction, you can instead use Aliyun OCR directly:
+
+```bash
+export FILECRYSTAL_OCR_PROVIDER=aliyun-ocr
+export FILECRYSTAL_ALIYUN_ACCESS_KEY_ID=your-access-key-id
+export FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET=your-access-key-secret
+
+filecrystal extract ./docs/scan.pdf --out ./out/
+```
+
+Aliyun OCR runs `RecognizeAdvanced` with automatic rotation and table output on
+by default. If you continue into `filecrystal structure`, also set the
+OpenAI-compatible text LLM credentials above.
 
 ## CLI quickstart
 

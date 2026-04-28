@@ -16,9 +16,12 @@ export interface OcrResult {
     promptTokens?: number;
     completionTokens?: number;
     imageTokens?: number;
+    providerSpecific?: Record<string, unknown>;
   };
   model: string;
   ms: number;
+  provider?: string;
+  avgConfidence?: number;
 }
 
 export interface OcrRequest {

@@ -60,6 +60,11 @@ export function registerStructureCommand(program: Command): void {
       '--vision-model <model>',
       'vision model used when raw files need OCR first. Env: FILECRYSTAL_VISION_MODEL. Default: qwen-vl-ocr-latest',
     )
+    .option('--ocr-provider <provider>', 'OCR provider for raw-file extraction: openai-compat | aliyun-ocr. Env: FILECRYSTAL_OCR_PROVIDER')
+    .option('--aliyun-access-key-id <id>', 'Aliyun OCR AccessKeyId. Prefer env: FILECRYSTAL_ALIYUN_ACCESS_KEY_ID')
+    .option('--aliyun-access-key-secret <secret>', 'Aliyun OCR AccessKeySecret. Prefer env: FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET')
+    .option('--aliyun-ocr-endpoint <url>', 'Aliyun OCR endpoint. Env: FILECRYSTAL_ALIYUN_OCR_ENDPOINT')
+    .option('--aliyun-ocr-region <region>', 'Aliyun OCR region. Env: FILECRYSTAL_ALIYUN_OCR_REGION')
     .option(
       '--max-input-chars <n>',
       'force batch split when combined text exceeds this many characters (default 500000 — single LLM call covers most inputs)',

@@ -34,6 +34,8 @@ export { FileParserError, ErrorCode } from './utils/errors.js';
 export type { OcrBackend, OcrRequest, OcrResult, OcrBlock } from './ocr/backend.js';
 export type { LlmBackend, LlmExtractRequest, LlmExtractResult } from './llm/backend.js';
 export { createOpenAICompatOcrBackend } from './ocr/openai-compat.js';
+export { createOcrBackend } from './ocr/registry.js';
+export { createAliyunOcrBackend } from './ocr/providers/aliyun.js';
 export { createOpenAICompatLlmBackend } from './llm/openai-compat.js';
 export { createQwenOcrBackend, createQwenVisionBackend } from './ocr/presets/qwen.js';
 export { createQwenLlmBackend } from './llm/presets/qwen.js';

@@ -36,7 +36,7 @@ export async function extractImage(
   ctx.metrics.addOcrMs(Date.now() - ocrStart);
   ctx.metrics.recordCall({
     model: ocrResult.model,
-    provider: 'openai-compat',
+    provider: ocrResult.provider ?? 'openai-compat',
     promptTokens: ocrResult.usage?.promptTokens ?? 0,
     completionTokens: ocrResult.usage?.completionTokens ?? 0,
     ms: ocrResult.ms,

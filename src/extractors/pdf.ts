@@ -197,7 +197,7 @@ async function processPage(
         }));
         ctx.metrics.recordCall({
           model: ocrResult.model,
-          provider: 'openai-compat',
+          provider: ocrResult.provider ?? 'openai-compat',
           promptTokens: ocrResult.usage?.promptTokens ?? 0,
           completionTokens: ocrResult.usage?.completionTokens ?? 0,
           ms: ocrResult.ms,
@@ -224,7 +224,7 @@ async function processPage(
         sealMs = Date.now() - sealStart;
         ctx.metrics.recordCall({
           model: res.model,
-          provider: 'openai-compat',
+          provider: res.provider ?? 'openai-compat',
           promptTokens: res.usage?.promptTokens ?? 0,
           completionTokens: res.usage?.completionTokens ?? 0,
           ms: res.ms,

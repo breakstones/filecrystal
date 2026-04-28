@@ -2,7 +2,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { FileParserError, ErrorCode } from './utils/errors.js';
-import type { FileParserConfig } from './types.js';
+import type { AliyunOcrConfig, FileParserConfig, OcrProvider } from './types.js';
 import { VERSION } from './version.js';
 
 const openaiSchema = z.object({
@@ -32,6 +32,19 @@ const configSchema = z.object({
        * Default: false (standard non-reasoning mode).
        */
       enableThinking: z.boolean().optional(),
+      provider: z.enum(['openai-compat', 'aliyun-ocr']).optional(),
+      aliyun: z
+        .object({
+          accessKeyId: z.string().min(1).optional(),
+          accessKeySecret: z.string().min(1).optional(),
+          endpoint: z.string().min(1).optional(),
+          regionId: z.string().min(1).optional(),
+          model: z.literal('RecognizeAdvanced').optional(),
+          outputTable: z.boolean().optional(),
+          row: z.boolean().optional(),
+          paragraph: z.boolean().optional(),
+        })
+        .optional(),
     })
     .optional(),
   extraction: z
@@ -63,6 +76,18 @@ const configSchema = z.object({
 
 export const QWEN_DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
+export interface ResolvedOcrProviderConfig {
+  provider: OcrProvider;
+  model: string;
+  openai?: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+  };
+  aliyun?: Required<Pick<AliyunOcrConfig, 'accessKeyId' | 'accessKeySecret' | 'model'>> &
+    Pick<AliyunOcrConfig, 'endpoint' | 'regionId' | 'outputTable' | 'row' | 'paragraph'>;
+}
+
 export interface ResolvedConfig {
   mode: 'mock' | 'api';
   cacheDir: string;
@@ -78,6 +103,9 @@ export interface ResolvedConfig {
     retries: number;
     imageMaxLongEdge: number;
     enableThinking: boolean;
+    provider: OcrProvider;
+    primary: ResolvedOcrProviderConfig;
+    vision: ResolvedOcrProviderConfig;
   };
   extraction: {
     defaultTemperature: number;
@@ -140,12 +168,24 @@ export function resolveConfig(input: FileParserConfig): ResolvedConfig {
     };
   }
 
-  if (cfg.mode === 'api' && !openai?.apiKey) {
+  const ocrProvider = cfg.ocr?.provider ?? (env.FILECRYSTAL_OCR_PROVIDER as OcrProvider | undefined) ?? 'openai-compat';
+  if (ocrProvider !== 'openai-compat' && ocrProvider !== 'aliyun-ocr') {
+    throw new FileParserError(ErrorCode.CONFIG_INVALID, `Unsupported OCR provider: ${ocrProvider}`);
+  }
+
+  if (cfg.mode === 'api' && ocrProvider === 'openai-compat' && !openai?.apiKey) {
     throw new FileParserError(
       ErrorCode.CONFIG_INVALID,
       'api mode requires openai.apiKey (or FILECRYSTAL_MODEL_API_KEY env)',
     );
   }
+
+  const primaryOcr = cfg.mode === 'mock'
+    ? mockOcrProviderConfig('mock-ocr')
+    : resolvePrimaryOcrProvider({ provider: ocrProvider, cfg, env, openai });
+  const visionOcr = cfg.mode === 'mock'
+    ? mockOcrProviderConfig('mock-vision')
+    : resolveVisionOcrProvider({ cfg, env, openai });
 
   return {
     mode: cfg.mode,
@@ -170,6 +210,9 @@ export function resolveConfig(input: FileParserConfig): ResolvedConfig {
       imageMaxLongEdge: cfg.ocr?.imageMaxLongEdge ?? 2000,
       enableThinking:
         cfg.ocr?.enableThinking ?? env.FILECRYSTAL_VISION_MODEL_THINKING === 'true',
+      provider: ocrProvider,
+      primary: primaryOcr,
+      vision: visionOcr,
     },
     extraction: {
       defaultTemperature: cfg.extraction?.defaultTemperature ?? 0.1,
@@ -186,5 +229,94 @@ export function resolveConfig(input: FileParserConfig): ResolvedConfig {
       headTailRatio: cfg.truncation?.headTailRatio ?? [7, 3],
       docxMaxChars: cfg.truncation?.docxMaxChars ?? 5000,
     },
+  };
+}
+
+function mockOcrProviderConfig(model: string): ResolvedOcrProviderConfig {
+  return { provider: 'openai-compat', model };
+}
+
+function resolvePrimaryOcrProvider(args: {
+  provider: OcrProvider;
+  cfg: z.infer<typeof configSchema>;
+  env: NodeJS.ProcessEnv;
+  openai: ResolvedConfig['openai'];
+}): ResolvedOcrProviderConfig {
+  if (args.provider === 'openai-compat') {
+    if (!args.openai?.apiKey) {
+      throw new FileParserError(
+        ErrorCode.CONFIG_INVALID,
+        'api mode requires openai.apiKey (or FILECRYSTAL_MODEL_API_KEY env)',
+      );
+    }
+    return {
+      provider: 'openai-compat',
+      model: args.openai.models.ocr,
+      openai: {
+        baseUrl: args.openai.baseUrl,
+        apiKey: args.openai.apiKey,
+        model: args.openai.models.ocr,
+      },
+    };
+  }
+
+  const aliyun = resolveAliyunConfig(args.cfg.ocr?.aliyun, args.env);
+  return {
+    provider: 'aliyun-ocr',
+    model: aliyun.model,
+    aliyun,
+  };
+}
+
+function resolveVisionOcrProvider(args: {
+  cfg: z.infer<typeof configSchema>;
+  env: NodeJS.ProcessEnv;
+  openai: ResolvedConfig['openai'];
+}): ResolvedOcrProviderConfig {
+  if (args.openai?.apiKey) {
+    return {
+      provider: 'openai-compat',
+      model: args.openai.models.vision,
+      openai: {
+        baseUrl: args.openai.baseUrl,
+        apiKey: args.openai.apiKey,
+        model: args.openai.models.vision,
+      },
+    };
+  }
+
+  const aliyun = resolveAliyunConfig(args.cfg.ocr?.aliyun, args.env);
+  return {
+    provider: 'aliyun-ocr',
+    model: aliyun.model,
+    aliyun,
+  };
+}
+
+function stripProtocol(endpoint: string): string {
+  return endpoint.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+}
+
+function resolveAliyunConfig(
+  raw: AliyunOcrConfig | undefined,
+  env: NodeJS.ProcessEnv,
+): NonNullable<ResolvedOcrProviderConfig['aliyun']> {
+  const accessKeyId = raw?.accessKeyId ?? env.FILECRYSTAL_ALIYUN_ACCESS_KEY_ID;
+  const accessKeySecret = raw?.accessKeySecret ?? env.FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET;
+  if (!accessKeyId || !accessKeySecret) {
+    throw new FileParserError(
+      ErrorCode.CONFIG_INVALID,
+      'aliyun-ocr requires FILECRYSTAL_ALIYUN_ACCESS_KEY_ID and FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET',
+    );
+  }
+  return {
+    accessKeyId,
+    accessKeySecret,
+    endpoint: stripProtocol(raw?.endpoint ?? env.FILECRYSTAL_ALIYUN_OCR_ENDPOINT ?? 'ocr-api.cn-hangzhou.aliyuncs.com'),
+    regionId: raw?.regionId ?? env.FILECRYSTAL_ALIYUN_OCR_REGION ?? 'cn-hangzhou',
+    model: raw?.model ?? 'RecognizeAdvanced',
+    outputTable: raw?.outputTable ?? true,
+    row: raw?.row,
+    paragraph: raw?.paragraph,
   };
 }

@@ -34,12 +34,13 @@ npx filecrystal <command> ...         # 发布后
 ### 环境变量
 
 统一命名规范:
-- `FILECRYSTAL_MODEL_*` — 模型服务凭据
+- `FILECRYSTAL_MODEL_*` — OpenAI-compatible 模型服务凭据
 - `FILECRYSTAL_<DOMAIN>_MODEL` — 具体模型名(DOMAIN = `VISION` 或 `TEXT`)
 - `FILECRYSTAL_<DOMAIN>_MODEL_THINKING` — 对应 domain 的 Qwen3 思考开关
+- `FILECRYSTAL_ALIYUN_*` — 阿里云 OCR 专用凭据 / endpoint
 - 非模型运行时变量保留原命名空间
 
-**模型凭据**(必需):
+**模型凭据**(默认 OpenAI-compatible provider 必需):
 
 | 变量 | 作用 | 默认 |
 |---|---|---|
@@ -61,6 +62,28 @@ npx filecrystal <command> ...         # 发布后
 | `FILECRYSTAL_TEXT_MODEL_THINKING` | `true` → 给 text/structure 请求加 `enable_thinking: true` | `false` |
 
 > 思考模式会显著增加延迟和 token 消耗,对 OCR 类任务通常无益;仅在处理需要复杂推理的文本抽取时考虑开启 `FILECRYSTAL_TEXT_MODEL_THINKING`。
+
+**阿里云 OCR provider**(可选,用于替代默认 OpenAI-compatible OCR):
+
+| 变量 | 作用 | 默认 |
+|---|---|---|
+| `FILECRYSTAL_OCR_PROVIDER` | OCR provider:`openai-compat` 或 `aliyun-ocr` | `openai-compat` |
+| `FILECRYSTAL_ALIYUN_ACCESS_KEY_ID` | 阿里云 AccessKey ID;`aliyun-ocr` 必填 | — |
+| `FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET` | 阿里云 AccessKey Secret;`aliyun-ocr` 必填 | — |
+| `FILECRYSTAL_ALIYUN_OCR_ENDPOINT` | OCR endpoint | `ocr-api.cn-hangzhou.aliyuncs.com` |
+| `FILECRYSTAL_ALIYUN_OCR_REGION` | OCR region | `cn-hangzhou` |
+
+最低配置只需要三项:
+
+```bash
+export FILECRYSTAL_OCR_PROVIDER=aliyun-ocr
+export FILECRYSTAL_ALIYUN_ACCESS_KEY_ID=your-access-key-id
+export FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET=your-access-key-secret
+```
+
+`aliyun-ocr` 使用阿里云 `RecognizeAdvanced`:自动旋转(`NeedRotate`)和表格结构输出(`OutputTable`)默认开启,无需额外 env 或 CLI flag。`Row` / `Paragraph` 未默认开启,仅保留给 SDK 高级配置,因为真实样本中会增加噪声和重复文本。
+
+> 只运行 `filecrystal extract` 生成 Markdown 时,上述三项就是最低配置。运行 `filecrystal structure` 时还需要 `FILECRYSTAL_MODEL_BASE_URL` + `FILECRYSTAL_MODEL_API_KEY`,因为结构化抽取阶段仍要调用文本 LLM。
 
 **并发控制**(可选):
 
@@ -125,6 +148,11 @@ filecrystal extract <paths...> [options]
 | `--base-url <url>` | 任意 OpenAI-compatible base URL | env `FILECRYSTAL_MODEL_BASE_URL` |
 | `--api-key <key>` | 任意 API key | env `FILECRYSTAL_MODEL_API_KEY` |
 | `--vision-model <model>` | `qwen-vl-ocr-latest` / `qwen-vl-plus` / `qwen-vl-max` / `qwen3-vl-plus` / ... | `qwen-vl-ocr-latest` |
+| `--ocr-provider <provider>` | `openai-compat` / `aliyun-ocr` | env `FILECRYSTAL_OCR_PROVIDER` 或 `openai-compat` |
+| `--aliyun-access-key-id <id>` | 阿里云 AccessKey ID | env `FILECRYSTAL_ALIYUN_ACCESS_KEY_ID` |
+| `--aliyun-access-key-secret <secret>` | 阿里云 AccessKey Secret | env `FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET` |
+| `--aliyun-ocr-endpoint <url>` | 阿里云 OCR endpoint | env `FILECRYSTAL_ALIYUN_OCR_ENDPOINT` 或 `ocr-api.cn-hangzhou.aliyuncs.com` |
+| `--aliyun-ocr-region <region>` | 阿里云 OCR region | env `FILECRYSTAL_ALIYUN_OCR_REGION` 或 `cn-hangzhou` |
 | `--full-pages` | 开关 | off(启用头尾截断) |
 | `--force` | 开关 | off(使用缓存) |
 | `--no-detect-seals` | 开关 | off(默认进行印章签名识别) |
@@ -216,22 +244,28 @@ node dist/cli.js extract docs/*.pdf --out out/markdown/
 # 3) 印章精度优先
 node dist/cli.js extract docs/合同.pdf --vision-model qwen3-vl-plus
 
-# 4) 速度优先,关印章
+# 4) 使用阿里云 OCR 直接生成 Markdown(自动旋转 + 默认输出 Markdown 表格)
+FILECRYSTAL_OCR_PROVIDER=aliyun-ocr \
+FILECRYSTAL_ALIYUN_ACCESS_KEY_ID=your-access-key-id \
+FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET=your-access-key-secret \
+  node dist/cli.js extract docs/扫描表格.pdf --out out/markdown/
+
+# 5) 速度优先,关印章
 node dist/cli.js extract docs/*.pdf --no-detect-seals
 
-# 5) 处理长文档,关头尾截断
+# 6) 处理长文档,关头尾截断
 node dist/cli.js extract docs/长合同.pdf --full-pages
 
-# 6) zip 输入:解压到 docs/bundle/ ,然后批量解析里面的支持格式
+# 7) zip 输入:解压到 docs/bundle/ ,然后批量解析里面的支持格式
 node dist/cli.js extract docs/bundle.zip
 
-# 7) 混合输入:pdf + md + zip(md 直通,pdf 和 zip 内容走解析)
+# 8) 混合输入:pdf + md + zip(md 直通,pdf 和 zip 内容走解析)
 node dist/cli.js extract docs/合同.pdf docs/notes.md docs/bundle.zip
 
-# 8) 只传文本文件:不调 OCR/LLM,秒返回
+# 9) 只传文本文件:不调 OCR/LLM,秒返回
 node dist/cli.js extract docs/README.md docs/CHANGELOG.md
 
-# 6) 结合环境变量
+# 10) 结合环境变量
 FILECRYSTAL_VISION_MODEL=qwen-vl-plus \
   node dist/cli.js extract docs/*.pdf
 ```
@@ -268,6 +302,11 @@ filecrystal structure <inputs...> [options]
 | `--api-key <key>` | 任意 API key | env `FILECRYSTAL_MODEL_API_KEY` |
 | `--text-model <model>` | `qwen3.6-plus` / `qwen-plus` / `qwen-max` / `qwen3-plus` / ... | `qwen3.6-plus` |
 | `--vision-model <model>` | `qwen-vl-ocr-latest` / `qwen-vl-plus` / ... | `qwen-vl-ocr-latest` |
+| `--ocr-provider <provider>` | `openai-compat` / `aliyun-ocr`;仅在需要先 extract 原始文件时生效 | env `FILECRYSTAL_OCR_PROVIDER` 或 `openai-compat` |
+| `--aliyun-access-key-id <id>` | 阿里云 AccessKey ID | env `FILECRYSTAL_ALIYUN_ACCESS_KEY_ID` |
+| `--aliyun-access-key-secret <secret>` | 阿里云 AccessKey Secret | env `FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET` |
+| `--aliyun-ocr-endpoint <url>` | 阿里云 OCR endpoint | env `FILECRYSTAL_ALIYUN_OCR_ENDPOINT` 或 `ocr-api.cn-hangzhou.aliyuncs.com` |
+| `--aliyun-ocr-region <region>` | 阿里云 OCR region | env `FILECRYSTAL_ALIYUN_OCR_REGION` 或 `cn-hangzhou` |
 | `--full-pages` | 开关,仅在需要先 extract 原始文件时生效 | off |
 | `--no-detect-seals` | 开关,同上 | off |
 
@@ -457,6 +496,7 @@ node dist/cli.js structure docs/合同.pdf \
 | 就地批量生成 Markdown | `extract *.pdf` |
 | 统一收口到一个目录 | `extract *.pdf --out out/` |
 | 印章签名识别优先精度 | `extract a.pdf --vision-model qwen3-vl-plus` |
+| 阿里云 OCR 生成 Markdown 表格 | `FILECRYSTAL_OCR_PROVIDER=aliyun-ocr FILECRYSTAL_ALIYUN_ACCESS_KEY_ID=... FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET=... extract a.pdf` |
 | 速度优先,关印章检测 | `extract *.pdf --no-detect-seals` |
 | 一次 OCR 多次试 prompt | `extract *.pdf --out out/` → `structure out/*.md --prompt p1.md` |
 | 简短一次性抽取 | `structure a.md --prompt-text '输出 JSON: {"x":"..."}'` |

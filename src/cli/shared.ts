@@ -6,6 +6,11 @@ export interface CommonOptions {
   /** Unified vision/OCR model (one model powers both OCR and seal/signature checks). */
   visionModel?: string;
   textModel?: string;
+  ocrProvider?: string;
+  aliyunAccessKeyId?: string;
+  aliyunAccessKeySecret?: string;
+  aliyunOcrEndpoint?: string;
+  aliyunOcrRegion?: string;
 }
 
 /**
@@ -42,13 +47,17 @@ export function resolveFileConcurrency(fileCount: number): number {
  * seal/signature vision model — the backend is the same.
  */
 export function buildConfig(opts: CommonOptions): FileParserConfig {
+  const provider = opts.ocrProvider ?? process.env.FILECRYSTAL_OCR_PROVIDER ?? 'openai-compat';
   const baseUrl = opts.baseUrl ?? process.env.FILECRYSTAL_MODEL_BASE_URL;
   const apiKey = opts.apiKey ?? process.env.FILECRYSTAL_MODEL_API_KEY;
-  if (!baseUrl || !apiKey) {
+  if (provider === 'openai-compat' && (!baseUrl || !apiKey)) {
     throw new Error(
       'API credentials required. Set --base-url / --api-key or ' +
         'FILECRYSTAL_MODEL_BASE_URL / FILECRYSTAL_MODEL_API_KEY env vars.',
     );
+  }
+  if (provider !== 'openai-compat' && provider !== 'aliyun-ocr') {
+    throw new Error('Unsupported OCR provider. Use openai-compat or aliyun-ocr.');
   }
   const models: { ocr?: string; vision?: string; text?: string } = {};
   if (opts.visionModel) {
@@ -56,10 +65,27 @@ export function buildConfig(opts: CommonOptions): FileParserConfig {
     models.vision = opts.visionModel;
   }
   if (opts.textModel) models.text = opts.textModel;
-  return {
+
+  const config: FileParserConfig = {
     mode: 'api',
-    openai: { baseUrl, apiKey, models },
+    ocr: {
+      provider,
+    },
   };
+  if (baseUrl && apiKey) config.openai = { baseUrl, apiKey, models };
+  if (provider === 'aliyun-ocr') {
+    config.ocr = {
+      ...config.ocr,
+      aliyun: {
+        accessKeyId: opts.aliyunAccessKeyId ?? process.env.FILECRYSTAL_ALIYUN_ACCESS_KEY_ID,
+        accessKeySecret:
+          opts.aliyunAccessKeySecret ?? process.env.FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET,
+        endpoint: opts.aliyunOcrEndpoint ?? process.env.FILECRYSTAL_ALIYUN_OCR_ENDPOINT,
+        regionId: opts.aliyunOcrRegion ?? process.env.FILECRYSTAL_ALIYUN_OCR_REGION,
+      },
+    };
+  }
+  return config;
 }
 
 /** Always pretty-print JSON — human-readable by default. */

@@ -46,7 +46,8 @@ Full option reference: [`docs/CLI.md`](./docs/CLI.md).
 ### Credentials
 
 ```bash
-# Default: Alibaba 百炼 (Qwen). Swap baseUrl + model for any OpenAI-compatible provider.
+# Default OCR/LLM backend: any OpenAI-compatible provider.
+# Alibaba 百炼 (Qwen) is the default preset when you use DashScope.
 export FILECRYSTAL_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 export FILECRYSTAL_MODEL_API_KEY=sk-your-key-here
 
@@ -60,6 +61,25 @@ export FILECRYSTAL_TEXT_MODEL_THINKING=false              # Qwen3 reasoning for 
 export FILECRYSTAL_FILE_CONCURRENCY=20   # CLI file-level parallelism (extract + structure)
 export FILECRYSTAL_OCR_CONCURRENCY=24    # process-wide OCR / vision pool; lower if rate-limited
 ```
+
+#### Aliyun OCR provider
+
+For OCR-only Markdown extraction you can use Aliyun OCR directly, without an
+OpenAI-compatible vision model:
+
+```bash
+export FILECRYSTAL_OCR_PROVIDER=aliyun-ocr
+export FILECRYSTAL_ALIYUN_ACCESS_KEY_ID=your-access-key-id
+export FILECRYSTAL_ALIYUN_ACCESS_KEY_SECRET=your-access-key-secret
+
+filecrystal extract ./scan.pdf --out ./out/
+```
+
+Aliyun OCR uses `RecognizeAdvanced` with automatic rotation and table output on
+by default, so scanned forms and payment tables can render as Markdown tables
+without extra flags. `filecrystal structure` still needs text LLM credentials
+(`FILECRYSTAL_MODEL_BASE_URL` + `FILECRYSTAL_MODEL_API_KEY`) because that stage
+runs prompt-defined JSON extraction after Markdown is produced.
 
 ## Quick start (library)
 

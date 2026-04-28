@@ -1,5 +1,13 @@
 # filecrystal
 
+## 0.5.3
+
+### Patch Changes
+
+- Add Aliyun OCR as a first-class OCR provider for `extract` and raw-file `structure` flows. The provider uses Aliyun `RecognizeAdvanced`, requests automatic rotation and table output by default, and renders returned table cells as Markdown tables while keeping row/paragraph structure as SDK-only advanced options.
+
+  CLI users can enable it with `FILECRYSTAL_OCR_PROVIDER=aliyun-ocr` plus Aliyun AccessKey credentials, without configuring low-level table flags.
+
 ## 0.5.2
 
 ### Patch Changes
